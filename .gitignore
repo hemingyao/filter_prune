@@ -3,3 +3,4 @@ cifar-10-batches-py
 Data
 __pycache__
 output
+*pyc
