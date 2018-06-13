@@ -1,6 +1,6 @@
-Archive
 cifar-10-batches-py
 Data
-__pycache__
+*__pycache__*
 output
 *pyc
+
