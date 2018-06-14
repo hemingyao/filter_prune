@@ -4,6 +4,46 @@ import numpy as np
 
 
 ##################################################################################################################
+def small_thing(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
+    use_scale=False
+    a = [64, 64, 128, 128, 256, 256, 256, 512, 512, 512, 512, 512, 512]
+    #a = [32, 32, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+    conv = tflearn.conv_2d(inputs, a[0], [3,3], activation='relu', weights_init='normal',regularizer='L2',
+                      weight_decay=wd, 
+                      scope="Conv"+'1_1', trainable=True)
+    conv = tflearn.batch_normalization(conv)
+    conv = tflearn.max_pool_2d(conv, 2, name='pool_1')
+    conv = tflearn.dropout(conv, prob_conv, name='dropout1')
+                      
+    conv = tflearn.batch_normalization(conv)
+    conv = tflearn.max_pool_2d(conv, 2, name='pool_2')
+    conv = tflearn.dropout(conv, prob_conv, name='dropout2')
+
+    
+    conv = tflearn.batch_normalization(conv)
+    conv = tflearn.max_pool_2d(conv, 2, name='pool_3')
+    conv = tflearn.dropout(conv, prob_conv, name='dropout3')
+
+                      
+    conv = tflearn.batch_normalization(conv)
+    conv = tflearn.max_pool_2d(conv, 2, name='pool_4')
+    conv = tflearn.dropout(conv, prob_conv, name='dropout4')
+
+    # Fifth Block
+                      
+    conv = tflearn.batch_normalization(conv)
+    conv = tflearn.max_pool_2d(conv, 2, name='pool_5')
+    conv = tflearn.dropout(conv, prob_fc, name='dropout5')
+
+    #conv = tf.reduce_mean(conv, [1,2], name='global_pool_1')
+    conv = tflearn.fully_connected(conv, 512, activation='relu', scope='fc1', trainable=True)
+    #conv = tf.nn.dropout(conv, prob_fc, name='dropout1')
+    #conv = tflearn.fully_connected(conv, 4096, activation='relu', scope='fc2')
+    conv = tflearn.dropout(conv, prob_fc, name='dropout6')
+    conv = tflearn.fully_connected(conv, 10, name='fc3',activation='softmax', trainable=True)
+
+    return conv  
+
 
 def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
     # First Block

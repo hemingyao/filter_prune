@@ -9,6 +9,7 @@ import tensorflow as tf
 #import keras.backend as K
 import numpy as np
 import time, os, h5py
+import functools
 
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import random_ops
@@ -20,6 +21,8 @@ from utils import *
 from train_ops import *
 from batch_generator import ReadData
 import tflearn_dev as tflearn
+from data_flow import input_fn
+
 
 _FLOATX = tf.float32
 _EPSILON = 1e-10
@@ -112,18 +115,43 @@ class Train():
 		with sess.as_default():
 			# Data Reading objects
 			tflearn.is_training(True, session=sess)
-			train_data = ReadData('train', self.img_size, self.set_id, self.train_range)
-			vali_data = ReadData('validation', self.img_size, self.set_id, self.vali_range)
+			#train_data = ReadData('train', self.img_size, self.set_id, self.train_range)
+			#vali_data = ReadData('validation', self.img_size, self.set_id, self.vali_range)
 
-			train_batch_data, train_batch_labels = train_data.read_from_files()
-			vali_batch_data, vali_batch_labels = vali_data.read_from_files()
+			#train_batch_data, train_batch_labels = train_data.read_from_files()
+			#vali_batch_data, vali_batch_labels = vali_data.read_from_files()
 			self.am_training = tf.placeholder(dtype=bool, shape=())
-			self.batch_data = tf.cond(self.am_training, lambda:train_batch_data, lambda:vali_batch_data)
-			self.batch_labels = tf.cond(self.am_training, lambda:train_batch_labels, lambda:vali_batch_labels)
+			#self.batch_data = tf.cond(self.am_training, lambda:train_batch_data, lambda:vali_batch_data)
+			#self.batch_labels = tf.cond(self.am_training, lambda:train_batch_labels, lambda:vali_batch_labels)
 
 			self.prob_fc = tf.placeholder_with_default(0.5, shape=())
-			self.prob_conv = tf.placeholder_with_default(1.0, shape=())
+			self.prob_conv = tf.placeholder_with_default(0.5, shape=())
 
+			"""
+			[image_batch], [label_batch] = input_fn(os.path.join(FLAGS.data_dir, FLAGS.set_id), subset='test',
+			num_shards=1, batch_size=FLAGS.batch_size, 
+			use_distortion_for_training=True)
+
+			[image_batch], [label_batch] = input_fn(os.path.join(FLAGS.data_dir, FLAGS.set_id), subset='test',
+			num_shards=1, batch_size=FLAGS.batch_size, 
+			use_distortion_for_training=False)
+			"""
+			data_fn = functools.partial(input_fn, data_dir=os.path.join(FLAGS.data_dir, FLAGS.set_id), 
+				num_shards=1, batch_size=FLAGS.batch_size, use_distortion_for_training=True)
+
+			self.batch_data, self.batch_labels = tf.cond(self.am_training, 
+				lambda: data_fn(subset='train'),
+				lambda: data_fn(subset='test'))
+
+			self.batch_data = self.batch_data[0]
+			self.batch_labels = self.batch_labels[0]
+
+			"""
+			self.batch_data = tf.placeholder(name='data', dtype=tf.float32,
+								shape=(FLAGS.batch_size,)+self.img_size)
+			self.batch_labels = tf.placeholder(name='labels', dtype=tf.float32,
+								shape=(FLAGS.batch_size,10))
+								"""
 			if len(kwargs)==0:
 				self.dict_widx = None
 				self._build_graph()
@@ -177,15 +205,20 @@ class Train():
 			nparams = calculate_number_of_parameters(tf.trainable_variables())
 			print(nparams)
 
+
 			for step in range(train_steps):
 
 				#print('{} step starts'.format(step))
-				
 				start_time = time.time()
 				tflearn.is_training(True, session=sess)
-				labels, _, summary_str, loss_value, total_loss, accuracy = sess.run(
-					[self.batch_labels, self.train_op, self.summary_op, self.loss, self.total_loss, self.accuracy], 
+
+				_, labels, _, summary_str, loss_value, total_loss, accuracy = sess.run(
+					[self.batch_data, self.batch_labels, self.train_op, self.summary_op, self.loss, self.total_loss, self.accuracy], 
 					feed_dict={self.am_training: True, self.prob_fc: FLAGS.keep_prob_fc, self.prob_conv: FLAGS.keep_prob_conv})
+
+				#labels, _, summary_str, loss_value, total_loss, accuracy = sess.run(
+				#	[self.batch_labels, self.train_op, self.summary_op, self.loss, self.total_loss, self.accuracy], 
+				#	feed_dict={self.batch_data: image_batch, self.batch_labels: label_batch, self.prob_fc: FLAGS.keep_prob_fc, self.prob_conv: FLAGS.keep_prob_conv})
 
 				tflearn.is_training(False, session=sess)
 				duration = time.time() - start_time
@@ -222,7 +255,7 @@ class Train():
 
 					summary_writer.add_summary(train_summ, step)
                                                       
-					vali_loss_value, vali_accuracy_value = self._full_validation(vali_data, sess)
+					vali_loss_value, vali_accuracy_value = self._full_validation(sess)
 					
 					if step%(report_freq*50)==0:
 						epoch = step/(report_freq*10)
@@ -247,7 +280,7 @@ class Train():
 					print(format_str % (step//report_freq, train_loss, train_total_loss, train_accuracy_value, vali_loss_value, vali_accuracy_value, sec_per_report+vali_duration))
 
 
-	def _full_validation(self, vali_data, sess):
+	def _full_validation(self, sess):
 		tflearn.is_training(False, session=sess)
 		num_batches_vali = FLAGS.num_val_images // FLAGS.batch_size
 
@@ -255,8 +288,8 @@ class Train():
 		accuracy_list = []
 
 		for step_vali in range(num_batches_vali):
-			loss, accuracy = sess.run([self.loss, self.accuracy], 
-				feed_dict={self.am_training: False, self.prob_fc: 1, self.prob_conv: 1})
+			_, _, loss, accuracy = sess.run([self.batch_data, self.batch_labels,self.loss, self.accuracy], 
+				feed_dict={self.am_training:False, self.prob_fc: 1, self.prob_conv: 1})
 											#feed_dict={self.am_training: False, self.prob_fc: FLAGS.keep_prob_fc, self.prob_conv: 1})
 			
 			loss_list.append(loss)
@@ -275,7 +308,6 @@ def main(argv=None):
 	                    type=int)
 	gi = parser.parse_args().gi
 
-	print(gi)
 	os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
 	tf_config=tf.ConfigProto() 
 	tf_config.gpu_options.allow_growth=True 

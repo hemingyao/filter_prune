@@ -394,8 +394,6 @@ def shuffle(*arrs):
 	return tuple(arr[p] for arr in arrs)
 
 
-
-
 def to_categorical(y, nb_classes):
 	
 	y = np.asarray(y, dtype='int32')
@@ -424,3 +422,22 @@ def calculate_number_of_parameters(variables):
 		total_parameters += variable_parameters
 		print(variable_parameters)
 	return total_parameters
+
+
+def add_scaled_noise_to_gradients(self, grads_and_vars, gradient_noise_scale):
+	"""Adds scaled noise from a 0-mean normal distribution to gradients."""
+	gradients, variables = zip(*grads_and_vars)
+	noisy_gradients = []
+	for gradient in gradients:
+		if gradient is None:
+			noisy_gradients.append(None)
+			continue
+		if isinstance(gradient, ops.IndexedSlices):
+			gradient_shape = gradient.dense_shape
+		else:
+			gradient_shape = gradient.get_shape()
+		noise = random_ops.truncated_normal(gradient_shape) * gradient_noise_scale
+		noisy_gradients.append(gradient + noise)
+	return list(zip(noisy_gradients, variables))
+
+	

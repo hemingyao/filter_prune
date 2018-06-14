@@ -39,7 +39,7 @@ tf.app.flags.DEFINE_string('net_name', 'baseline_rescale',#'model3_add_loss_more
 tf.app.flags.DEFINE_string('data_dir', './Data/',
 	"""The directory of dataset""")
 
-tf.app.flags.DEFINE_string('set_id', 'cifar-10',
+tf.app.flags.DEFINE_string('set_id', 'cifar_tfrecord',
 	"""The index of channel that will be used""") 
 
 tf.app.flags.DEFINE_integer('label_bytes', 1, #5000
