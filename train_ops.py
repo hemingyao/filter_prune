@@ -27,8 +27,8 @@ def add_all_losses(loss):
 
 
 
-def train_operation(loss, var_list, global_step, decay_rate, decay_steps, lr=0.001, 
-	optimizer='Adam',dict_widx=None, clip_gradients=0):
+def train_operation(loss, var_list, global_step, decay_rate, decay_steps, grads_and_vars, 
+	lr=0.001, optimizer='Adam',dict_widx=None, clip_gradients=0):
 	"""
 	Description: To calculate the gradient and apply the gradient to target variables
 
@@ -56,11 +56,13 @@ def train_operation(loss, var_list, global_step, decay_rate, decay_steps, lr=0.0
 	elif optimizer=='RMSProp':
 		opt = tf.train.RMSPropOptimizer(learning_rate)
 
-	#grads_and_vars = opt.compute_gradients(loss, var_list=var_list)
-	grad = tf.gradients(loss, tf.trainable_variables())
-	if clip_gradients > 0.0:
-		grad, grad_norm = tf.clip_by_global_norm(grad, clip_gradients)
-	grads_and_vars = list(zip(grad, tf.trainable_variables()))
+	#grad = tf.gradients(loss, tf.trainable_variables())
+	if grads_and_vars is None:
+		grad = tf.gradients(loss, tf.trainable_variables())
+
+		if clip_gradients > 0.0:
+			grad, grad_norm = tf.clip_by_global_norm(grad, clip_gradients)
+		grads_and_vars = list(zip(grad, tf.trainable_variables()))
 
 	if dict_widx is None:
 		apply_gradient_op = opt.apply_gradients(grads_and_vars, global_step=global_step)

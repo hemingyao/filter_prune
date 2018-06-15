@@ -6,6 +6,7 @@ import numpy as np
 ##################################################################################################################
 def small_thing(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
     use_scale=False
+
     a = [64, 64, 128, 128, 256, 256, 256, 512, 512, 512, 512, 512, 512]
     #a = [32, 32, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
     conv = tflearn.conv_2d(inputs, a[0], [3,3], activation='relu', weights_init='normal',regularizer='L2',
@@ -47,6 +48,7 @@ def small_thing(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True)
 
 def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
     # First Block
+    #print(inputs.shape)
     use_scale=False
     a = [64, 64, 128, 128, 256, 256, 256, 512, 512, 512, 512, 512, 512]
     #a = [32, 32, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
@@ -130,7 +132,7 @@ def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=
     #conv = tf.nn.dropout(conv, prob_fc, name='dropout1')
     #conv = tflearn.fully_connected(conv, 4096, activation='relu', scope='fc2')
     conv = tflearn.dropout(conv, prob_fc, name='dropout6')
-    conv = tflearn.fully_connected(conv, 10, name='fc3',activation='softmax', trainable=True)
+    conv = tflearn.fully_connected(conv, 10, name='fc3', trainable=True) #,activation='softmax'
 
     return conv
 

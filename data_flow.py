@@ -1,5 +1,6 @@
 import os
 import tensorflow as tf
+from six.moves import xrange
 
 HEIGHT = 32
 WIDTH = 32
@@ -113,26 +114,26 @@ def input_fn(data_dir,
   Returns:
     two lists of tensors for features and labels, each of num_shards length.
   """
-  #with tf.device('/cpu:0'):
-  use_distortion = subset == 'train' and use_distortion_for_training
-  dataset = Cifar10DataSet(data_dir, subset, use_distortion)
-  image_batch, label_batch = dataset.make_batch(batch_size)
-  if num_shards <= 1:
-    # No GPU available or only 1 GPU.
-    return [image_batch], [label_batch]
+  with tf.device('/cpu:0'):
+    use_distortion = subset == 'train' and use_distortion_for_training
+    dataset = Cifar10DataSet(data_dir, subset, use_distortion)
+    image_batch, label_batch = dataset.make_batch(batch_size)
+    if num_shards <= 1:
+      # No GPU available or only 1 GPU.
+      return [image_batch], [label_batch]
 
-  # Note that passing num=batch_size is safe here, even though
-  # dataset.batch(batch_size) can, in some cases, return fewer than batch_size
-  # examples. This is because it does so only when repeating for a limited
-  # number of epochs, but our dataset repeats forever.
-  image_batch = tf.unstack(image_batch, num=batch_size, axis=0)
-  label_batch = tf.unstack(label_batch, num=batch_size, axis=0)
-  feature_shards = [[] for i in range(num_shards)]
-  label_shards = [[] for i in range(num_shards)]
-  for i in xrange(batch_size):
-    idx = i % num_shards
-    feature_shards[idx].append(image_batch[i])
-    label_shards[idx].append(label_batch[i])
-  feature_shards = [tf.parallel_stack(x) for x in feature_shards]
-  label_shards = [tf.parallel_stack(x) for x in label_shards]
-  return feature_shards, label_shards
+    # Note that passing num=batch_size is safe here, even though
+    # dataset.batch(batch_size) can, in some cases, return fewer than batch_size
+    # examples. This is because it does so only when repeating for a limited
+    # number of epochs, but our dataset repeats forever.
+    image_batch = tf.unstack(image_batch, num=batch_size, axis=0)
+    label_batch = tf.unstack(label_batch, num=batch_size, axis=0)
+    feature_shards = [[] for i in range(num_shards)]
+    label_shards = [[] for i in range(num_shards)]
+    for i in xrange(batch_size):
+      idx = i % num_shards
+      feature_shards[idx].append(image_batch[i])
+      label_shards[idx].append(label_batch[i])
+    feature_shards = [tf.parallel_stack(x) for x in feature_shards]
+    label_shards = [tf.parallel_stack(x) for x in label_shards]
+    return feature_shards, label_shards
