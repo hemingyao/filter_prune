@@ -392,11 +392,11 @@ class Train():
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("gi", help="index of the gpu",
+    parser.add_argument("gi", nargs='?', help="index of the gpu",
                         type=int)
     gi = parser.parse_args().gi
 
-    os.environ["CUDA_VISIBLE_DEVICES"]= "0,1,2"
+    os.environ["CUDA_VISIBLE_DEVICES"]= "1,2"
 
     #os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
     tf_config=tf.ConfigProto()

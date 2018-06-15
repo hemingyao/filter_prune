@@ -19,13 +19,13 @@ tf.app.flags.DEFINE_float('keep_prob_fc', 0.5,
 tf.app.flags.DEFINE_float('keep_prob_conv', 0.5,
 	"""Keep probability""")
 
-tf.app.flags.DEFINE_integer('batch_size', 128*10, 
+tf.app.flags.DEFINE_integer('batch_size', 128*3, 
 	"""Batch size""")
 
 tf.app.flags.DEFINE_integer('val_batch_size', 512, 
 	"""Batch size""")
 
-tf.app.flags.DEFINE_integer('num_gpus', 3,
+tf.app.flags.DEFINE_integer('num_gpus', 2,
 	"""Train epoch""")
 
 tf.app.flags.DEFINE_integer('train_epoch', 100,
@@ -53,10 +53,10 @@ tf.app.flags.DEFINE_integer('label_bytes', 1, #5000
 tf.app.flags.DEFINE_float('min_fraction_of_examples_in_queue', 0.5,
 	"""Minimul fraction of examples in queue. Used for shuffling data""")
 
-tf.app.flags.DEFINE_integer('num_train_images', 500*128*10, #50000
+tf.app.flags.DEFINE_integer('num_train_images', 500*128*3, #50000
 	"""The number of images used for training""")
 
-tf.app.flags.DEFINE_integer('num_val_images', 2000, # 10000
+tf.app.flags.DEFINE_integer('num_val_images', 500, # 10000
 	"""The number of images used for validation""")
 
 tf.app.flags.DEFINE_integer('num_test_images', 300, # 16000
