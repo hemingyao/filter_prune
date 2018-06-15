@@ -24,17 +24,45 @@ import tflearn_dev as tflearn
 from data_flow import input_fn
 import multig_utils 
 
-_FLOATX = tf.float32
-_EPSILON = 1e-10
-
 VAL_RANGE = set(range(0, 1))
 TRAIN_RANGE = set(range(1, 6)) 
 
 #VAL_RANGE = set(range(0,33, 10))
-
 option = 1
 
-RUN_NAME = '10times'
+
+def get_trainable_variables(checkpoint_file, layer=None):
+    reader = tf.train.NewCheckpointReader(checkpoint_file)
+    saved_shapes = reader.get_variable_to_shape_map()
+
+    checkp_var = [var for var in tf.global_variables()
+            if var.name.split(':')[0] in saved_shapes]
+
+    checkp_name2var = dict(zip(map(lambda x:x.name.split(':')[0], checkp_var), checkp_var))
+    all_name2var = dict(zip(map(lambda x:x.name.split(':')[0], tf.global_variables()), tf.global_variables()))
+
+    if layer==None:
+        for name, var in all_name2var.items():
+            if name in checkp_name2var:
+                tf.add_to_collection('restore_vars', all_name2var[name])
+            else:
+                print(name)
+                tf.add_to_collection('my_new_vars', all_name2var[name])
+    else:
+        for name, var in all_name2var.items():
+            if name in checkp_name2var and 'Block8' not in name:
+                tf.add_to_collection('restore_vars', all_name2var[name])
+                if 'Block8' in name:
+                    tf.add_to_collection('my_new_vars', all_name2var[name])
+            else:
+                print(name)
+                tf.add_to_collection('my_new_vars', all_name2var[name])
+
+    my_trainable_vars = tf.get_collection('my_new_vars')
+    restore_vars = tf.get_collection('restore_vars')
+    return my_trainable_vars, restore_vars
+
+
 
 class Train():
     def __init__(self, run_id, config, img_size):
@@ -66,11 +94,22 @@ class Train():
             'probabilities': tf.nn.softmax(logits)
             }
 
-        tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-            labels=self.batch_labels[index], logits=logits, name='cross_entropy'))
+        labels = self.batch_labels[index]
 
-        model_params = tf.trainable_variables()
+        temp_labels = tf.reshape(labels, [-1, labels.shape[-1].value])
+        temp_logits = tf.reshape(logits, [-1,logits.shape[-1].value])
+
+        if FLAGS.loss_type == 'softmax_cross_entropy':
+            tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+                labels=self.batch_labels[index], logits=logits, name='cross_entropy'))
+
         tower_total_loss = add_all_losses(tower_loss)
+
+        if FLAGS.status=='transfer':
+            model_params, _ = get_trainable_variables(FLAGS.checkpoint_file)
+        else:
+            model_params = tf.trainable_variables()
+            
 
         tower_grad = tf.gradients(tower_total_loss, model_params)
 
@@ -157,6 +196,8 @@ class Train():
                     gradlst, grad_norm = tf.clip_by_global_norm(gradlst, FLAGS.clip_gradients)
                 gradvars = list(zip(gradlst, varlst))
 
+        if FLAGS.status=='tune' and self.dict_sidx:
+            gradvars = apply_prune_on_grads(gradvars, self.dict_widx)
 
         # Device that runs the ops to apply global gradient updates.
         consolidation_device = '/gpu:0' if variable_strategy == 'GPU' else '/cpu:0'
@@ -207,7 +248,6 @@ class Train():
             }
 
 
-
             # Create single grouped train op
             train_op = [apply_gradients_op]
             train_op.extend(update_ops)
@@ -219,6 +259,7 @@ class Train():
         for var in tf.trainable_variables():
             tf.summary.histogram(var.op.name, var)
         self.summary_op = tf.summary.merge_all()
+
 
     def train(self, **kwargs):
         #with tf.Graph().as_default():
@@ -243,8 +284,7 @@ class Train():
 
             #self.batch_data = self.batch_data[0]
             #self.batch_labels = self.batch_labels[0]
-
-            if len(kwargs)==0:
+            if FLAGS.status=='scratch':
                 self.dict_widx = None
                 self._build_graph()
                 self.saver = tf.train.Saver(tf.global_variables())
@@ -252,7 +292,7 @@ class Train():
                 init = tf.global_variables_initializer()
                 sess.run(init)
 
-            else:
+            elif FLAGS.status=='tune':
                 self.dict_widx = kwargs['dict_widx']
                 pruned_model = kwargs['pruned_model_path']
 
@@ -266,9 +306,19 @@ class Train():
                 self.saver.restore(sess, pruned_model)
                 print('Pruned model restored from ', pruned_model)
 
+            elif FLAGS.status=='transfer':  
+                self._build_graph()             
+                #tflearn.config.init_training_mode()
+                init = tf.global_variables_initializer()
+                sess.run(init)
 
-            coord = tf.train.Coordinator()
-            threads = tf.train.start_queue_runners(coord=coord)
+                self.saver = tf.train.Saver(tf.global_variables())
+                self.saver.restore(sess, FLAGS.checkpoint_path)
+                print('Model restored from ', pruned_model)
+
+
+            #coord = tf.train.Coordinator()
+            #threads = tf.train.start_queue_runners(coord=coord)
 
             # This summary writer object helps write summaries on tensorboard
             summary_writer = tf.summary.FileWriter(FLAGS.log_dir+self.run_id)
@@ -395,8 +445,10 @@ def main(argv=None):
     parser.add_argument("gi", nargs='?', help="index of the gpu",
                         type=int)
     gi = parser.parse_args().gi
-
-    os.environ["CUDA_VISIBLE_DEVICES"]= "1,2"
+    if gi==None:
+        os.environ["CUDA_VISIBLE_DEVICES"]= "1,2,3"
+    else: 
+        os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
 
     #os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
     tf_config=tf.ConfigProto()
@@ -406,7 +458,7 @@ def main(argv=None):
     #set_id = 'eval'
 
     if option == 1:
-        run_id = '{}_{}_lr_{}_wd_{}_{}'.format(FLAGS.net_name, RUN_NAME, FLAGS.learning_rate, FLAGS.weight_decay, time.strftime("%b_%d_%H_%M", time.localtime()))
+        run_id = '{}_{}_lr_{}_wd_{}_{}'.format(FLAGS.net_name, FLAGS.run_name, FLAGS.learning_rate, FLAGS.weight_decay, time.strftime("%b_%d_%H_%M", time.localtime()))
 
         # First Training
         train = Train(run_id, tf_config, img_size)
