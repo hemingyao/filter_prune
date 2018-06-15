@@ -1,6 +1,10 @@
 import tensorflow as tf
 
+IMG_SIZE = (32, 32, 3)
+DATA_AUG = ['crop', 'random_flip_left_right'] # rotation
+
 FLAGS = tf.app.flags.FLAGS
+
 
 ############################################################################
 # Network
@@ -65,7 +69,7 @@ tf.app.flags.DEFINE_integer('label_bytes', 1, #5000
 tf.app.flags.DEFINE_float('min_fraction_of_examples_in_queue', 0.5,
 	"""Minimul fraction of examples in queue. Used for shuffling data""")
 
-tf.app.flags.DEFINE_integer('num_train_images', 500*128*1, #50000
+tf.app.flags.DEFINE_integer('num_train_images', 50000, #50000
 	"""The number of images used for training""")
 
 tf.app.flags.DEFINE_integer('num_val_images', 500, # 10000

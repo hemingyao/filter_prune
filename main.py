@@ -19,12 +19,13 @@ import network
 from flags import FLAGS
 
 import tflearn_dev as tflearn
-from data_flow import input_fn
+from data_flow import input_fn, IMG_SIZE
 
 from utils import multig, prune, op_utils, train_ops
 
-VAL_RANGE = set(range(0, 1))
-TRAIN_RANGE = set(range(1, 6)) 
+
+VAL_RANGE = set(range(0,1))
+TRAIN_RANGE = set(range(1,2)) 
 
 #VAL_RANGE = set(range(0,33, 10))
 option = 1
@@ -64,8 +65,8 @@ def get_trainable_variables(checkpoint_file, layer=None):
 
 
 class Train():
-    def __init__(self, run_id, config, img_size):
-        self.img_size = img_size
+    def __init__(self, run_id, config):
+        self.img_size = IMG_SIZE
         self.run_id = run_id
         self.dict_widx = None
         self.tf_config = config
@@ -278,8 +279,8 @@ class Train():
                 num_shards=FLAGS.num_gpus, batch_size=FLAGS.batch_size, use_distortion_for_training=True)
 
             self.batch_data, self.batch_labels = tf.cond(self.am_training, 
-                lambda: data_fn(subset='train'),
-                lambda: data_fn(subset='test'))
+                lambda: data_fn(data_range=self.train_range, subset='train'),
+                lambda: data_fn(data_range=self.vali_range, subset='test'))
 
             #self.batch_data = self.batch_data[0]
             #self.batch_labels = self.batch_labels[0]
@@ -453,14 +454,13 @@ def main(argv=None):
     tf_config=tf.ConfigProto()
     tf_config.gpu_options.allow_growth=True 
 
-    img_size = (32, 32, 3)
     #set_id = 'eval'
 
     if option == 1:
         run_id = '{}_{}_lr_{}_wd_{}_{}'.format(FLAGS.net_name, FLAGS.run_name, FLAGS.learning_rate, FLAGS.weight_decay, time.strftime("%b_%d_%H_%M", time.localtime()))
 
         # First Training
-        train = Train(run_id, tf_config, img_size)
+        train = Train(run_id, tf_config)
         train.train()
 
     elif option == 2:
