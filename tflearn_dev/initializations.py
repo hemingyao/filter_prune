@@ -136,7 +136,7 @@ def normal(shape=None, mean=0.0, stddev=0.02, dtype=tf.float32, seed=None):
         The Initializer, or an initialized `Tensor` if shape is specified.
 
     """
-    seed = 1
+    #seed = 1
     if shape:
         return tf.random_normal(shape, mean=mean, stddev=stddev, seed=seed,
                                 dtype=dtype)
