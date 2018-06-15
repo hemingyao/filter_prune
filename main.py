@@ -17,12 +17,11 @@ from tensorflow.python.ops import random_ops
 ## Import Customized Functions
 import network
 from flags import FLAGS
-from utils import *
-from train_ops import *
-from batch_generator import ReadData
+
 import tflearn_dev as tflearn
 from data_flow import input_fn
-import multig_utils 
+
+from utils import multig, prune, op_utils, train_ops
 
 VAL_RANGE = set(range(0, 1))
 TRAIN_RANGE = set(range(1, 6)) 
@@ -103,7 +102,7 @@ class Train():
             tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                 labels=self.batch_labels[index], logits=logits, name='cross_entropy'))
 
-        tower_total_loss = add_all_losses(tower_loss)
+        tower_total_loss = train_ops.add_all_losses(tower_loss)
 
         if FLAGS.status=='transfer':
             model_params, _ = get_trainable_variables(FLAGS.checkpoint_file)
@@ -149,10 +148,10 @@ class Train():
         for i in range(num_devices):
             worker_device = '/{}:{}'.format(device_type, i)
             if variable_strategy == 'CPU':
-                device_setter = multig_utils.local_device_setter(
+                device_setter = multig.local_device_setter(
                   worker_device=worker_device)
             elif variable_strategy == 'GPU':
-                device_setter = multig_utils.local_device_setter(
+                device_setter = multig.local_device_setter(
                   ps_device_type='gpu',
                   worker_device=worker_device,
                   ps_strategy=tf.contrib.training.GreedyLoadBalancingStrategy(
@@ -197,7 +196,7 @@ class Train():
                 gradvars = list(zip(gradlst, varlst))
 
         if FLAGS.status=='tune' and self.dict_sidx:
-            gradvars = apply_prune_on_grads(gradvars, self.dict_widx)
+            gradvars = prune.apply_prune_on_grads(gradvars, self.dict_widx)
 
         # Device that runs the ops to apply global gradient updates.
         consolidation_device = '/gpu:0' if variable_strategy == 'GPU' else '/cpu:0'
@@ -209,12 +208,12 @@ class Train():
             self.loss = tf.reduce_mean(tower_losses, name='loss')
             self.total_loss = tf.reduce_mean(tower_total_losses, name='total_loss')
 
-            _, apply_gradients_op, learning_rate = train_operation(lr=FLAGS.learning_rate, global_step=global_step, 
+            _, apply_gradients_op, learning_rate = train_ops.train_operation(lr=FLAGS.learning_rate, global_step=global_step, 
                             decay_rate=0.5, decay_steps=32000, optimizer=FLAGS.optimizer, clip_gradients=FLAGS.clip_gradients,
                             loss=self.total_loss, var_list=tf.trainable_variables(), grads_and_vars=gradvars)
 
             # log
-            examples_sec_hook = multig_utils.ExamplesPerSecondHook(
+            examples_sec_hook = multig.ExamplesPerSecondHook(
                 FLAGS.batch_size, every_n_steps=100)
 
             tensors_to_log = {'learning_rate': learning_rate, 'loss': self.loss}
@@ -344,7 +343,7 @@ class Train():
             best_accuracy = 0
             best_loss = 1
 
-            nparams = calculate_number_of_parameters(tf.trainable_variables())
+            nparams = op_utils.calculate_number_of_parameters(tf.trainable_variables())
             print(nparams)
 
 
@@ -475,7 +474,7 @@ def main(argv=None):
         run_id = '{}_{}_lr_{}_wd_{}_{}'.format(model_name, run_name, learning_rate, weight_decay, time.strftime("%b_%d_%H_%M", time.localtime()))
         layer_names = ['Conv3D', 'Conv3D_1', 'Conv3D_2', 'Conv3D_3'] 
 
-        dict_widx, pruned_model_path = apply_pruning_scale(layer_names, trained_path, run_id, tf_config)
+        dict_widx, pruned_model_path = prune.apply_pruning_scale(layer_names, trained_path, run_id, tf_config)
         #dict_widx, pruned_model_path = apply_pruning_random(layer_names, [58,52,52,63], trained_path, run_id, tf_config, random=False)
 
         train = Train(model_name, run_id, tf_config, set_id, img_size, learning_rate, train_range, vali_range, weight_decay)

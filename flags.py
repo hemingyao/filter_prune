@@ -46,7 +46,7 @@ tf.app.flags.DEFINE_float('clip_gradients', 5.0,
 tf.app.flags.DEFINE_string('status', 'scratch', # "scratch", "transfer", "tune"
 	"""Keep probability""")
 
-tf.app.flags.DEFINE_string('checkpoint_file', '../output/model3_add_loss_test/model/epoch_6.5_dice_-0.755-3900',
+tf.app.flags.DEFINE_string('checkpoint_file', '../Output/model3_add_loss_test/model/epoch_6.5_dice_-0.755-3900',
 	"""Train epoch""")
 ############################################################################
 # Data
@@ -76,7 +76,7 @@ tf.app.flags.DEFINE_integer('num_test_images', 300, # 16000
 
 ############################################################################
 # Utils
-tf.app.flags.DEFINE_string('log_dir', './output/',
+tf.app.flags.DEFINE_string('log_dir', './Logs/',
 	"""The diretory for logs""")
 #tf.app.flags.DEFINE_integer('img_size', 256,
 #	"""Image width and height""")
