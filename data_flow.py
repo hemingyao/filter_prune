@@ -3,7 +3,7 @@ import tensorflow as tf
 from six.moves import xrange
 from flags import FLAGS, IMG_SIZE, DATA_AUG
 from data_aug import *
-
+import numpy as np
 
 class DataSet(object):
     def __init__(self, data_dir, data_range, subset='train', use_distortion=True):
@@ -32,18 +32,14 @@ class DataSet(object):
                 'image/class/label': tf.FixedLenFeature([], tf.int64),
             })
         #image = tf.decode_raw(features['image/encoded'], tf.uint8)
-        image = tf.image.decode_png(features['image/encoded'], dtype=tf.uint8)
-
-        #image.set_shape([DEPTH * HEIGHT * WIDTH])
-        image.set_shape(IMG_SIZE)
-        # Reshape from [depth * height * width] to [depth, height, width].
+        #image = tf.image.decode_png(features['image/encoded'], dtype=tf.uint8)
+        image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
+        image = tf.reshape(image, IMG_SIZE)
         image = tf.cast(image, tf.float32)
-        #image = tf.cast(
-         #   tf.transpose(tf.reshape(image, [DEPTH, HEIGHT, WIDTH]), [1, 2, 0]),
-         #   tf.float32)
+
         #label = tf.cast(features['image/class/label'], tf.int32)
         label = features['image/class/label']
-        label = tf.one_hot(label,10)
+        label = tf.one_hot(label,FLAGS.num_labels)
         # Custom preprocessing.
         image = self.preprocess(image)
 

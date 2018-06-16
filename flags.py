@@ -1,11 +1,21 @@
 import tensorflow as tf
 
-IMG_SIZE = (32, 32, 3)
-DATA_AUG = ['crop', 'random_flip_left_right'] # rotation
+############################################################################
+#Dataset
+
+IMG_SIZE = (256, 256, 1)#IMG_SIZE = (32, 32, 3)
+DATA_AUG = [] #DATA_AUG = ['crop', 'random_flip_left_right'] # rotation
 
 FLAGS = tf.app.flags.FLAGS
 
+tf.app.flags.DEFINE_string('data_dir', '/home/spc/Documents/TFrecord/', #'./Data/'
+	"""The directory of dataset""")
 
+tf.app.flags.DEFINE_string('set_id', 'drowsiness_1_5_7', #cifar_tfrecord_v2
+	"""The index of channel that will be used""") 
+
+tf.app.flags.DEFINE_integer('num_labels', 2, #5000
+	"""The number of images used for training""")
 ############################################################################
 # Network
 tf.app.flags.DEFINE_float('learning_rate', 0.01,
@@ -26,10 +36,10 @@ tf.app.flags.DEFINE_float('keep_prob_conv', 0.5,
 tf.app.flags.DEFINE_integer('batch_size', 128*1, 
 	"""Batch size""")
 
-tf.app.flags.DEFINE_integer('val_batch_size', 512, 
+tf.app.flags.DEFINE_integer('val_batch_size', 128, 
 	"""Batch size""")
 
-tf.app.flags.DEFINE_integer('num_gpus', 1,
+tf.app.flags.DEFINE_integer('num_gpus', 3,
 	"""Train epoch""")
 
 tf.app.flags.DEFINE_integer('train_epoch', 100,
@@ -57,22 +67,14 @@ tf.app.flags.DEFINE_string('checkpoint_file', '../Output/model3_add_loss_test/mo
 tf.app.flags.DEFINE_string('net_name', 'baseline_rescale',#'model3_add_loss_more_2', 'model3_depthwise'， 'model3_add_loss'
 	"""The name of the network""")
 
-tf.app.flags.DEFINE_string('data_dir', './Data/',
-	"""The directory of dataset""")
 
-tf.app.flags.DEFINE_string('set_id', 'cifar_tfrecord',
-	"""The index of channel that will be used""") 
-
-tf.app.flags.DEFINE_integer('label_bytes', 1, #5000
-	"""The number of images used for training""")
-
-tf.app.flags.DEFINE_float('min_fraction_of_examples_in_queue', 0.5,
+tf.app.flags.DEFINE_float('min_fraction_of_examples_in_queue', 0.1,
 	"""Minimul fraction of examples in queue. Used for shuffling data""")
 
-tf.app.flags.DEFINE_integer('num_train_images', 50000, #50000
+tf.app.flags.DEFINE_integer('num_train_images', 70000, #50000
 	"""The number of images used for training""")
 
-tf.app.flags.DEFINE_integer('num_val_images', 500, # 10000
+tf.app.flags.DEFINE_integer('num_val_images', 20000, # 10000
 	"""The number of images used for validation""")
 
 tf.app.flags.DEFINE_integer('num_test_images', 300, # 16000

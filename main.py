@@ -24,8 +24,13 @@ from data_flow import input_fn, IMG_SIZE
 from utils import multig, prune, op_utils, train_ops
 
 
-VAL_RANGE = set(range(0,1))
-TRAIN_RANGE = set(range(1,2)) 
+#VAL_RANGE = set(range(0,1))
+#TRAIN_RANGE = set(range(1,2)) 
+
+TRAIN_RANGE = ['008', '009','012', '013', '015', '020', '023',\
+         '024','031', '032', '033', '034', '035', '036']
+#TRAIN = [ '004','022','026','030']
+VAL_RANGE = ['001', '002', '005', '006',]
 
 #VAL_RANGE = set(range(0,33, 10))
 option = 1

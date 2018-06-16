@@ -79,6 +79,24 @@ def _add_to_tfrecord(filename, tfrecord_writer, offset=0):
   images = images.reshape((num_images, 3, 32, 32))
   labels = data[b'labels']
 
+  writer = tf.python_io.TFRecordWriter(filename)
+
+  for j in range(num_images):
+    sys.stdout.write('\r>> Reading file [%s] image %d/%d' % (
+        filename, offset + j + 1, offset + num_images))
+    sys.stdout.flush()
+
+    image = np.squeeze(images[j]).transpose((1, 2, 0))
+    label = labels[j]
+
+    image_raw = image.tostring()
+    label_raw = np.array(label).tostring()
+
+    example = dataset_utils.image_to_tfexample(
+        image_raw, b'png', _IMAGE_SIZE, _IMAGE_SIZE, label_raw)
+    tfrecord_writer.write(example.SerializeToString())
+
+  """
   with tf.Graph().as_default():
     image_placeholder = tf.placeholder(dtype=tf.uint8)
     encoded_image = tf.image.encode_png(image_placeholder)
@@ -99,7 +117,7 @@ def _add_to_tfrecord(filename, tfrecord_writer, offset=0):
         example = dataset_utils.image_to_tfexample(
             png_string, b'png', _IMAGE_SIZE, _IMAGE_SIZE, label)
         tfrecord_writer.write(example.SerializeToString())
-
+    """
   return offset + num_images
 
 
@@ -162,7 +180,7 @@ def run(dataset_dir):
     print('Dataset files already exist. Exiting without re-creating them.')
     return
 
-  dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
+  #dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
 
   # First, process the training data:
   with tf.python_io.TFRecordWriter(training_filename) as tfrecord_writer:
@@ -184,7 +202,7 @@ def run(dataset_dir):
   labels_to_class_names = dict(zip(range(len(_CLASS_NAMES)), _CLASS_NAMES))
   dataset_utils.write_label_file(labels_to_class_names, dataset_dir)
 
-  _clean_up_temporary_files(dataset_dir)
+  #_clean_up_temporary_files(dataset_dir)
   print('\nFinished converting the Cifar10 dataset!')
 
 

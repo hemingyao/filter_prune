@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tflearn_dev as tflearn
 import numpy as np
-
+from flags import FLAGS
 
 ##################################################################################################################
 def small_thing(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
@@ -132,7 +132,7 @@ def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=
     #conv = tf.nn.dropout(conv, prob_fc, name='dropout1')
     #conv = tflearn.fully_connected(conv, 4096, activation='relu', scope='fc2')
     conv = tflearn.dropout(conv, prob_fc, name='dropout6')
-    conv = tflearn.fully_connected(conv, 10, name='fc3', trainable=True) #,activation='softmax'
+    conv = tflearn.fully_connected(conv, FLAGS.num_labels, name='fc3', trainable=True) #,activation='softmax'
 
     return conv
 
