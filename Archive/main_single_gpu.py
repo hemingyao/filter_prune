@@ -34,7 +34,7 @@ TRAIN_RANGE = set(range(1, 6))
 
 option = 1
 
-RUN_NAME = 'norm_0.5decay'
+RUN_NAME = '10times'
 
 class Train():
 	def __init__(self, run_id, config, img_size):
@@ -87,18 +87,18 @@ class Train():
 
 		update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 		with tf.control_dependencies(update_ops):
-		#with tf.name_scope("train_op"):
 			grads_and_vars, apply_gradient_op, self.learning_rate = train_operation(lr=FLAGS.learning_rate, global_step=global_step, 
 							decay_rate=0.5, decay_steps=10000, optimizer=FLAGS.optimizer,
-							loss=self.total_loss, var_list=tf.trainable_variables())
+							loss=self.total_loss, var_list=tf.trainable_variables(), grads_and_vars=None)
+
 			"""
 			for grad, var in grads_and_vars:
 				if grad is not None:
 					tf.summary.histogram(var.op.name + '/gradients', grad)
-
+			"""
 			for var in tf.trainable_variables():
 				tf.summary.histogram(var.op.name, var)
-			"""
+			
 
 		with tf.name_scope("accuracy"):
 			self.prediction, self.accuracy = prediction_and_accuracy(logits, self.batch_labels)
@@ -121,7 +121,6 @@ class Train():
 			self.prob_fc = tf.placeholder_with_default(0.5, shape=())
 			self.prob_conv = tf.placeholder_with_default(0.5, shape=())
 
-
 			data_fn = functools.partial(input_fn, data_dir=os.path.join(FLAGS.data_dir, FLAGS.set_id), 
 				num_shards=1, batch_size=FLAGS.batch_size, use_distortion_for_training=True)
 
@@ -131,6 +130,7 @@ class Train():
 
 			self.batch_data = self.batch_data[0]
 			self.batch_labels = self.batch_labels[0]
+
 
 			if len(kwargs)==0:
 				self.dict_widx = None
@@ -195,6 +195,10 @@ class Train():
 				_, labels, _, summary_str, loss_value, total_loss, accuracy = sess.run(
 					[self.batch_data, self.batch_labels, self.train_op, self.summary_op, self.loss, self.total_loss, self.accuracy], 
 					feed_dict={self.am_training: True, self.prob_fc: FLAGS.keep_prob_fc, self.prob_conv: FLAGS.keep_prob_conv})
+
+				#labels, _, summary_str, loss_value, total_loss, accuracy = sess.run(
+				#	[self.batch_labels, self.train_op, self.summary_op, self.loss, self.total_loss, self.accuracy], 
+				#	feed_dict={self.batch_data: image_batch, self.batch_labels: label_batch, self.prob_fc: FLAGS.keep_prob_fc, self.prob_conv: FLAGS.keep_prob_conv})
 
 				tflearn.is_training(False, session=sess)
 				duration = time.time() - start_time
@@ -285,9 +289,11 @@ def main(argv=None):
 	gi = parser.parse_args().gi
 
 	os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
-	tf_config=tf.ConfigProto()
+	tf_config=tf.ConfigProto() 
 	tf_config.gpu_options.allow_growth=True 
 
+	#sys.path.insert(0,'../')
+	#tf_config.gpu_options.per_process_gpu_memory_fraction=0.9
 	img_size = (32, 32, 3)
 	#set_id = 'eval'
 
