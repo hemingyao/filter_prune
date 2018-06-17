@@ -9,15 +9,34 @@ import os, json, pickle, glob, sys
 import numpy as np
 import tensorflow as tf
 import dataset_utils
+import h5py
 
+"""
+ h5 file structure (from Matlab):
+    DATASET, NAME (input, label)
+    For label: a mask (Note: The mask is 0/1 or 0/255?)
+""" 
+# allinone: Designed for one big matlab file for all data
+# individual: Designed for multiple matlab files, each for one subject [TODO]
+
+# Output: multiple tfrecord files, each for one subject
 
 CLASS = [0, 1]
 PRE = ''
-data_dir = '/home/spc/Documents/TFrecord'
+DATASET = 'PatientsData_sel'
+NAME = 'adjustImgs_static'
+MASK = 'masks'
+DATA_RANGE = range(0,62)
+DATA_DIR = '/home/spc/Documents/TFrecord'
 
-def get_data_from_pickle(raw_data_path, set_id, seq_length, stride_frame, stride_seq, subject_index=[]):
-    
-    save_path = os.path.join(data_dir, set_id+'_{}_{}_{}'.format(seq_length, stride_frame, stride_seq))
+raw_data_path = '/home/spc/Dropbox/CVproject/PatientsData_sel.mat'
+set_id = 'Hematoma_v2'
+
+
+
+def get_data_mat_allinone(raw_data_path, set_id, subject_index):
+    f = h5py.File(raw_data_path, 'r')
+    save_path = os.path.join(DATA_DIR, set_id)
 
     if os.path.isdir(save_path):
         pass
@@ -25,68 +44,55 @@ def get_data_from_pickle(raw_data_path, set_id, seq_length, stride_frame, stride
     else:
         os.makedirs(save_path)
 
-    log_f = open(os.path.join(data_dir, set_id+'_{}_{}_{}'.format(seq_length, stride_frame, stride_seq)+'_info'), 'a')
-
+    log_f = open(os.path.join(DATA_DIR, set_id+'_info'), 'a')
+    total = 0
+    
     dataset_stats = {}
     for each_class in CLASS:
         dataset_stats.setdefault(each_class,0)
-
+    
     for pf in subject_index:
-        tfrecord_filename = os.path.join(save_path, PRE+pf+'.tfrecord')
+        tfrecord_filename = os.path.join(save_path, PRE+str(pf)+'.tfrecord')
         tfrecord_writer = tf.python_io.TFRecordWriter(tfrecord_filename)
+
+        refinput = f[DATASET][NAME][pf]
+        refoutput = f[DATASET][MASK][pf]
+        num = f[refinput[0]].shape[0]
+        print(num)
+        total+=num
 
         subject_stats = {}
         for each_class in CLASS:
             subject_stats.setdefault(each_class,0)
-        total = 0
 
-        files = glob.glob(os.path.join(raw_data_path, '*'+pf+'*'))
+        Labels = f[refoutput[0]][:]
 
-        for each_file in files:
-            fname = each_file.split('/')[-1]
-            with open(each_file, 'rb') as rf:
-                [imgs, annots, eye, head, mouth]= pickle.load(rf)
-                for index in range (0,len(imgs)-seq_length*stride_frame,stride_seq):
-                    # IF 2D input
-                    if seq_length == 1:
-                        data_point = imgs[index,:,:,:]
-                        label = int(annots[index])
-                        subject_stats[label] += 1 
-                        dataset_stats[label] += 1 
-                        total += 1
-                    # IF 3D input
-                    else:
-                        data_point = imgs[index:index+seq_length*stride_frame:stride_frame,:,:]
-                        # For drowsiness
-                        annots = annots.astype(np.int32)
-                        label_array = annots[index:index+seq_length*stride_frame:stride_frame]
-                        #if int(label[-1])==1:
-                        if sum(label_array)==seq_length:
-                            label = 1
-                        #elif int(label[-1])==0:
-                        elif sum(label_array)==0:
-                            label = 0
-                        else:
-                            continue
-                        subject_stats[label] += 1 
-                        dataset_stats[label] += 1 
-                        total += 1
+        for ind in range(num):
+            Input= f[refinput[0]][ind,:,:]
+            Label= f[refoutput[0]][ind,:,:]/255    
 
-                    data_point = data_point.tostring()
-                    example = dataset_utils.image_to_tfexample(data_point, label)
-                    tfrecord_writer.write(example.SerializeToString())
-            rf.close()
-            print('Finish extracting data from %s'%(each_file))
+            if np.sum(Label)>0:
+                subject_stats[1] += 1
+                dataset_stats[1] += 1
+            else: 
+                subject_stats[0] += 1
+                dataset_stats[0] += 1
+
+            Label = Label.astype(np.int8)
+            
+            data_point = Input.tostring()
+            label = Label.tostring()
+
+            example = dataset_utils.image_to_tfexample_segmentation(data_point, label)
+            tfrecord_writer.write(example.SerializeToString())
 
         print('Finish writing data from {}'.format(pf))
-        log_f.write('{}: {}\t {}\n'.format(pf, total, json.dumps(subject_stats)))
+        log_f.write('{}: {}\t {}\n'.format(pf, num, json.dumps(subject_stats)))
 
     log_f.write('{}'.format(json.dumps(dataset_stats)))
 
 
 if __name__ == '__main__':
-    raw_data_path = '/media/DensoML/DENSO ML/DrowsinessData/raw_data_all_128'
-    train = ['001', '002', '005', '006', '008', '009','012', '013', '015', '020', '023',\
-         '024','031', '032', '033', '034', '035', '036']
-    get_data(raw_data_path, 'drowsiness', 1, 5, 7, subject_index=train)
+    #raw_data_path = '/media/DensoML/DENSO ML/DrowsinessData/'
+    get_data_mat_allinone(raw_data_path, set_id, subject_index=DATA_RANGE)
 

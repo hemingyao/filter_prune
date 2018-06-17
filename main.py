@@ -16,24 +16,12 @@ from tensorflow.python.ops import random_ops
 
 ## Import Customized Functions
 import network
-from flags import FLAGS
+from flags import FLAGS, TRAIN_RANGE, VAL_RANGE, TEST_RANGE, option
 
 import tflearn_dev as tflearn
 from data_flow import input_fn, IMG_SIZE
 
 from utils import multig, prune, op_utils, train_ops
-
-
-#VAL_RANGE = set(range(0,1))
-#TRAIN_RANGE = set(range(1,2)) 
-
-TRAIN_RANGE = ['008', '009','012', '013', '015', '020', '023',\
-         '024','031', '032', '033', '034', '035', '036']
-#TRAIN = [ '004','022','026','030']
-VAL_RANGE = ['001', '002', '005', '006',]
-
-#VAL_RANGE = set(range(0,33, 10))
-option = 1
 
 
 def get_trainable_variables(checkpoint_file, layer=None):
@@ -68,6 +56,18 @@ def get_trainable_variables(checkpoint_file, layer=None):
     return my_trainable_vars, restore_vars
 
 
+def dice(labels, logits):
+    y_pred = tf.nn.softmax(logits)
+    y_true = labels
+
+    y_pred = y_pred[:,:,:,1:]
+    y_true = y_true[:,:,:,1:]
+
+    #union = y_pred+y_true - y_pred*y_true
+    union = y_pred+y_true
+    dice_list = -2*tf.reduce_sum(y_pred*y_true,axis=(1,2,3))/(tf.reduce_sum(union,axis=(1,2,3))+0.001)
+    return tf.reduce_mean(dice_list)
+
 
 class Train():
     def __init__(self, run_id, config):
@@ -95,18 +95,26 @@ class Train():
             training_phase=self.am_training)
 
         tower_pred = {
-            'classes': tf.argmax(input=logits, axis=1),
+            'classes': tf.argmax(input=logits, axis=-1),
             'probabilities': tf.nn.softmax(logits)
             }
 
         labels = self.batch_labels[index]
 
-        temp_labels = tf.reshape(labels, [-1, labels.shape[-1].value])
-        temp_logits = tf.reshape(logits, [-1,logits.shape[-1].value])
 
         if FLAGS.loss_type == 'softmax_cross_entropy':
+
+            temp_labels = tf.reshape(labels, [-1, labels.shape[-1].value])
+            temp_logits = tf.reshape(logits, [-1,logits.shape[-1].value])
+            class_weights = tf.constant([[1.0, 10.0]])
             tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                labels=self.batch_labels[index], logits=logits, name='cross_entropy'))
+                labels=class_weights *temp_labels, logits=temp_logits))
+
+            #tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+             #       labels=temp_labels, logits=temp_logits, name='cross_entropy'))
+
+        elif FLAGS.loss_type == 'dice': 
+            tower_loss = dice(labels, logits)
 
         tower_total_loss = train_ops.add_all_losses(tower_loss)
 
@@ -218,25 +226,6 @@ class Train():
                             decay_rate=0.5, decay_steps=32000, optimizer=FLAGS.optimizer, clip_gradients=FLAGS.clip_gradients,
                             loss=self.total_loss, var_list=tf.trainable_variables(), grads_and_vars=gradvars)
 
-            # log
-            examples_sec_hook = multig.ExamplesPerSecondHook(
-                FLAGS.batch_size, every_n_steps=100)
-
-            tensors_to_log = {'learning_rate': learning_rate, 'loss': self.loss}
-
-            logging_hook = tf.train.LoggingTensorHook(
-                tensors=tensors_to_log, every_n_iter=100)
-
-            train_hooks = [logging_hook, examples_sec_hook]
-
-            """
-            if True:  ##TODO true or false
-                optimizer = tf.train.SyncReplicasOptimizer(
-                    optimizer, replicas_to_aggregate=num_workers)
-                sync_replicas_hook = optimizer.make_session_run_hook(params.is_chief)
-                train_hooks.append(sync_replicas_hook)
-            """
-
             predictions = {
                 'classes':
                     tf.concat([p['classes'] for p in tower_preds], axis=0),
@@ -245,13 +234,21 @@ class Train():
             }
             stacked_labels = tf.concat(self.batch_labels, axis=0)
             #stacked_labels = tf.argmax(input=stacked_labels, axis=1),
-            correct_prediction = tf.equal(predictions['classes'], tf.argmax(stacked_labels,1))
+            if FLAGS.seg:
+                y_pred = tf.cast(predictions['classes'], tf.float32)
+                y_true = tf.cast(stacked_labels[:,:,:,1], tf.float32)
+                union = y_pred + y_true
+                dice_list = -2*tf.reduce_sum(y_pred*y_true,axis=(1,2))/(tf.reduce_sum(union,axis=(1,2))+0.001)
+                metrics = {
+                    'accuracy': tf.reduce_mean(dice_list)
+                }               
+            else:
+                correct_prediction = tf.equal(predictions['classes'], tf.argmax(stacked_labels,-1))
 
-            metrics = {
-                'accuracy': tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-                    #tf.metrics.accuracy(stacked_labels, predictions['classes'])
-            }
-
+                metrics = {
+                    'accuracy': tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+                        #tf.metrics.accuracy(stacked_labels, predictions['classes'])
+                }
 
             # Create single grouped train op
             train_op = [apply_gradients_op]
@@ -263,6 +260,10 @@ class Train():
 
         for var in tf.trainable_variables():
             tf.summary.histogram(var.op.name, var)
+
+        tf.summary.image('images', self.batch_data[0])
+        tf.summary.image('label', tf.cast(self.batch_labels[0][:,:,:,1:]*255, tf.uint8))
+        tf.summary.image('prediction', tf.cast(tf.expand_dims(predictions['classes'],-1)*255, tf.uint8))
         self.summary_op = tf.summary.merge_all()
 
 
@@ -350,8 +351,7 @@ class Train():
             best_loss = 1
 
             nparams = op_utils.calculate_number_of_parameters(tf.trainable_variables())
-            print(nparams)
-
+            print(nparams/FLAGS.num_gpus)
 
             for step in range(train_steps):
 
@@ -365,8 +365,6 @@ class Train():
 
                 tflearn.is_training(False, session=sess)
                 duration = time.time() - start_time
-                #print('{} step starts {}'.format(step, duration))
-                
                 durations.append(duration)
                 train_loss_list.append(loss_value)
                 train_total_loss_list.append(total_loss)
@@ -444,6 +442,67 @@ class Train():
         return vali_loss_value, vali_accuracy_value
 
 
+def test(model_name, tf_config, test_range, test_path, probs):
+    ops.reset_default_graph()
+    sess = tf.Session(config=tf_config)
+
+    with sess.as_default():
+        tflearn.is_training(False, session=sess)
+        batch_data, batch_labels = input_fn(data_dir=os.path.join(FLAGS.data_dir, FLAGS.set_id), 
+            num_shards=1, batch_size=FLAGS.test_batch_size, data_range=TEST_RANGE, subset='test')
+
+        logits = getattr(network, FLAGS.net_name)(inputs=batch_data[0], 
+            prob_fc=1, prob_conv=1, wd=0, wd_scale=0, 
+            training_phase=False)
+
+        if Flags.seg:
+            accuracy = dice(labels=batch_labels[0], logits=logits)
+        else:
+            preclass = tf.nn.softmax(logits)
+            prediction = tf.argmax(preclass,-1)
+            label =  tf.argmax(batch_labels[0],-1)
+            correct_prediction = tf.equal(prediction, label)
+            accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+        saver = tf.train.Saver(tf.global_variables())
+        saver.restore(sess, test_path)
+        print('Model restored from ', test_path)
+
+        if probs:
+            prediction_array = []
+        else:
+            prediction_array = np.array([])
+
+        label_array = np.array([])
+
+        num_batches = FLAGS.num_test_images//FLAGS.test_batch_size
+
+        accuracy_list = []
+        #var = [v for v in tf.global_variables() if v.name == 'prediction'][0]
+        for step in range(num_batches):
+            #print(step)
+            if probs:
+                s, batch_prediction_array, batch_accuracy, batch_label_array = sess.run(
+                [batch_data, preclass, accuracy, label])
+                prediction_array.append(batch_prediction_array)
+                label_array = np.concatenate((label_array, batch_label_array))
+                accuracy_list.append(batch_accuracy)        
+
+            else:
+                batch_prediction_array, batch_accuracy, batch_label_array = sess.run(
+                    [prediction, accuracy, label])
+                prediction_array = np.concatenate((prediction_array, batch_prediction_array))
+                label_array = np.concatenate((label_array, batch_label_array))
+                accuracy_list.append(batch_accuracy)
+
+        if probs:
+            prediction_array = np.concatenate(prediction_array, axis=0)
+        accuracy = np.mean(np.array(accuracy_list, dtype=np.float32))
+        #print(prediction_array)
+        print(accuracy)
+        return prediction_array, label_array, accuracy
+
+
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser()
@@ -451,7 +510,7 @@ def main(argv=None):
                         type=int)
     gi = parser.parse_args().gi
     if gi==None:
-        os.environ["CUDA_VISIBLE_DEVICES"]= "1,2,3"
+        os.environ["CUDA_VISIBLE_DEVICES"]= "2,3"
     else: 
         os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
 

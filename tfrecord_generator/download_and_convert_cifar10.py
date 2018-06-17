@@ -90,7 +90,7 @@ def _add_to_tfrecord(filename, tfrecord_writer, offset=0):
     label = labels[j]
 
     image_raw = image.tostring()
-    label_raw = np.array(label).tostring()
+    label_raw = label
 
     example = dataset_utils.image_to_tfexample(
         image_raw, b'png', _IMAGE_SIZE, _IMAGE_SIZE, label_raw)
@@ -180,7 +180,7 @@ def run(dataset_dir):
     print('Dataset files already exist. Exiting without re-creating them.')
     return
 
-  #dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
+  dataset_utils.download_and_uncompress_tarball(_DATA_URL, dataset_dir)
 
   # First, process the training data:
   with tf.python_io.TFRecordWriter(training_filename) as tfrecord_writer:

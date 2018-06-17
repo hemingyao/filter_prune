@@ -5,6 +5,7 @@ from flags import FLAGS, IMG_SIZE, DATA_AUG
 from data_aug import *
 import numpy as np
 
+
 class DataSet(object):
     def __init__(self, data_dir, data_range, subset='train', use_distortion=True):
         self.data_dir = data_dir
@@ -25,23 +26,50 @@ class DataSet(object):
         # Dimensions of the images in the CIFAR-10 dataset.
         # See http://www.cs.toronto.edu/~kriz/cifar.html for a description of the
         # input format.
-        features = tf.parse_single_example(
-            serialized_example,
-            features={
-                'image/encoded': tf.FixedLenFeature([], tf.string),
-                'image/class/label': tf.FixedLenFeature([], tf.int64),
-            })
-        #image = tf.decode_raw(features['image/encoded'], tf.uint8)
-        #image = tf.image.decode_png(features['image/encoded'], dtype=tf.uint8)
-        image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
-        image = tf.reshape(image, IMG_SIZE)
-        image = tf.cast(image, tf.float32)
+        if FLAGS.seg:
+            features = tf.parse_single_example(
+                serialized_example,
+                features={
+                    'image/encoded': tf.FixedLenFeature([], tf.string),
+                    'image/class/label': tf.FixedLenFeature([], tf.string),
+                })
 
-        #label = tf.cast(features['image/class/label'], tf.int32)
-        label = features['image/class/label']
-        label = tf.one_hot(label,FLAGS.num_labels)
-        # Custom preprocessing.
-        image = self.preprocess(image)
+            image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
+            image = tf.reshape(image, IMG_SIZE)
+            image = tf.cast(image, tf.float32)
+
+            label = tf.decode_raw(features['image/class/label'], out_type=tf.int8)
+            label = tf.reshape(label, IMG_SIZE[0:2])
+            label = tf.cast(label, tf.int32)
+            label_raw = tf.cast(tf.reshape(label, IMG_SIZE), tf.float32)
+
+            label = tf.one_hot(label, FLAGS.num_labels)
+            # Custom preprocessing.
+            image = self.preprocess(image)
+
+            image.set_shape(IMG_SIZE)
+            label.set_shape(IMG_SIZE[0:2]+(FLAGS.num_labels,))
+        else:
+            features = tf.parse_single_example(
+                serialized_example,
+                features={
+                    'image/encoded': tf.FixedLenFeature([], tf.string),
+                    'image/class/label': tf.FixedLenFeature([], tf.int64),
+                })
+            #image = tf.decode_raw(features['image/encoded'], tf.uint8)
+            #image = tf.image.decode_png(features['image/encoded'], dtype=tf.uint8)
+            image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
+            image = tf.reshape(image, IMG_SIZE)
+            image = tf.cast(image, tf.float32)
+
+            #label = tf.cast(features['image/class/label'], tf.int32)
+            label = features['image/class/label']
+            label = tf.one_hot(label,FLAGS.num_labels)
+            # Custom preprocessing.
+            image = self.preprocess(image)
+
+            image.set_shape(IMG_SIZE)
+            label.set_shape((FLAGS.num_labels,))
 
         return image, label
 

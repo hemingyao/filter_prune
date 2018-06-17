@@ -13,11 +13,19 @@ import dataset_utils
 
 CLASS = [0, 1]
 PRE = ''
-data_dir = '/home/spc/Documents/TFrecord'
+DATA_DIR = '/home/spc/Documents/TFrecord'
 
-def get_data_from_pickle(raw_data_path, set_id, seq_length, stride_frame, stride_seq, subject_index=[]):
+raw_data_path = '/media/DensoML/DENSO ML/DrowsinessData/raw_data_all_128'
+train = ['001', '002', '005', '006', '008', '009','012', '013', '015', '020', '023',\
+     '024','031', '032', '033', '034', '035', '036']
+seq_length = 1
+stride_frame = 5
+stride_seq = 7
+
+
+def get_data_pickle(raw_data_path, set_id, seq_length, stride_frame, stride_seq, subject_index=[]):
     
-    save_path = os.path.join(data_dir, set_id+'_{}_{}_{}'.format(seq_length, stride_frame, stride_seq))
+    save_path = os.path.join(DATA_DIR, set_id+'_{}_{}_{}'.format(seq_length, stride_frame, stride_seq))
 
     if os.path.isdir(save_path):
         pass
@@ -25,7 +33,7 @@ def get_data_from_pickle(raw_data_path, set_id, seq_length, stride_frame, stride
     else:
         os.makedirs(save_path)
 
-    log_f = open(os.path.join(data_dir, set_id+'_{}_{}_{}'.format(seq_length, stride_frame, stride_seq)+'_info'), 'a')
+    log_f = open(os.path.join(DATA_DIR, set_id+'_{}_{}_{}'.format(seq_length, stride_frame, stride_seq)+'_info'), 'a')
 
     dataset_stats = {}
     for each_class in CLASS:
@@ -85,8 +93,5 @@ def get_data_from_pickle(raw_data_path, set_id, seq_length, stride_frame, stride
 
 
 if __name__ == '__main__':
-    raw_data_path = '/media/DensoML/DENSO ML/DrowsinessData/raw_data_all_128'
-    train = ['001', '002', '005', '006', '008', '009','012', '013', '015', '020', '023',\
-         '024','031', '032', '033', '034', '035', '036']
-    get_data(raw_data_path, 'drowsiness', 1, 5, 7, subject_index=train)
+    get_data_pickle(raw_data_path, 'drowsiness', seq_length=1, stride_frame=5, stride_seq=7, subject_index=train)
 

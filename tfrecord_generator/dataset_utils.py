@@ -68,6 +68,13 @@ def image_to_tfexample(image_data, class_id):
   }))
 
 
+def image_to_tfexample_segmentation(image_data, class_id):
+  return tf.train.Example(features=tf.train.Features(feature={
+      'image/encoded': bytes_feature(image_data),
+      'image/class/label': bytes_feature(class_id)
+  }))
+
+
 def download_and_uncompress_tarball(tarball_url, dataset_dir):
   """Downloads the `tarball_url` and uncompresses it locally.
   Args:
