@@ -4,8 +4,8 @@ import tensorflow as tf
 #Dataset
 option = 1
 IMG_SIZE = (512, 512, 1)#IMG_SIZE = (32, 32, 3)
-DATA_AUG = [] #DATA_AUG = ['crop', 'random_flip_left_right'] # rotation
-TEST_RANGE = []
+DATA_AUG = ['rotation'] #DATA_AUG = ['crop', 'random_flip_left_right'] # rotation
+TEST_RANGE = set(range(0, 5))
 VAL_RANGE = set(range(0, 62, 5))
 TRAIN_RANGE = set(range(0, 62)) - VAL_RANGE
 
@@ -21,6 +21,9 @@ TRAIN_RANGE = set(range(0, 62)) - VAL_RANGE
 
 FLAGS = tf.app.flags.FLAGS
 
+tf.app.flags.DEFINE_string('save_root_for_prediction', '/home/spc/Documents/Small_Dataset/Prediction/', #'./Data/'
+	"""The directory of dataset""")
+
 tf.app.flags.DEFINE_string('data_dir', '/home/spc/Documents/TFrecord/', #'./Data/'
 	"""The directory of dataset""")
 
@@ -35,10 +38,10 @@ tf.app.flags.DEFINE_boolean('seg', True,
 
 ############################################################################
 # Network
-tf.app.flags.DEFINE_float('learning_rate', 0.01,
+tf.app.flags.DEFINE_float('learning_rate', 0.0001,
 	"""Keep probability""")
 
-tf.app.flags.DEFINE_float('weight_decay', 0.001,
+tf.app.flags.DEFINE_float('weight_decay', 0.0001,
 	"""Keep probability""")
 
 tf.app.flags.DEFINE_float('weight_scale', 0,
@@ -53,7 +56,10 @@ tf.app.flags.DEFINE_float('keep_prob_conv', 1,
 tf.app.flags.DEFINE_integer('batch_size', 10, 
 	"""Batch size""")
 
-tf.app.flags.DEFINE_integer('val_batch_size', 1, 
+tf.app.flags.DEFINE_integer('val_batch_size', 10, 
+	"""Batch size""")
+
+tf.app.flags.DEFINE_integer('test_batch_size', 10, 
 	"""Batch size""")
 
 tf.app.flags.DEFINE_integer('num_gpus', 2,
@@ -62,7 +68,7 @@ tf.app.flags.DEFINE_integer('num_gpus', 2,
 tf.app.flags.DEFINE_integer('train_epoch', 100,
 	"""Train epoch""")
 
-tf.app.flags.DEFINE_string('optimizer', 'Adam', #Momentum
+tf.app.flags.DEFINE_string('optimizer', 'Momentum', #Momentum
 	"""Train epoch""")
 
 tf.app.flags.DEFINE_string('run_name', 'test',
@@ -71,7 +77,7 @@ tf.app.flags.DEFINE_string('run_name', 'test',
 tf.app.flags.DEFINE_string('loss_type', 'softmax_cross_entropy', #softmax_cross_entropy, dice
 	"""Train epoch""")
 
-tf.app.flags.DEFINE_float('clip_gradients', 5.0,
+tf.app.flags.DEFINE_float('clip_gradients', 0,
 	"""Keep probability""")
 
 tf.app.flags.DEFINE_string('status', 'scratch', # "scratch", "transfer", "tune"

@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 import sys, cv2, os, pickle
-from flags import FLAGS
 import scipy.io
+import glob
 
 _EPSILON = 1e-8
 
@@ -241,4 +241,40 @@ def add_scaled_noise_to_gradients(self, grads_and_vars, gradient_noise_scale):
 		noisy_gradients.append(gradient + noise)
 	return list(zip(noisy_gradients, variables))
 
-	
+
+def draw_images(save_root, batch_data, label, subject, index, prediction, accuracy):
+	if not os.path.isdir(save_root):
+		os.mkdir(save_root)
+
+	num = batch_data.shape[0]		
+	for i in range(num):
+		subject_path = os.path.join(save_root, str(subject[i]))
+		if not os.path.isdir(subject_path):
+			os.mkdir(subject_path)
+
+		imgname = os.path.join(subject_path, '{}_{:.3f}.png'.format(index[i], accuracy[i]))
+
+		concat_img= np.hstack((batch_data[i,:,:,0], label[i,:,:]*255, prediction[i,:,:]*255))
+
+		cv2.imwrite(imgname, concat_img)
+
+
+def calcuate_dice_per_subject(save_root, img_size):
+	folders = glob.glob(os.path.join(save_root, '*'))
+	dice_list = []
+	for subject in folders:
+		files = glob.glob(os.path.join(subject, '*png'))
+		labels = []
+		predictions = []
+		for each in files:
+			img = cv2.imread(each)
+			labels.append(img[:,img_size:img_size*2,0]/255)
+			predictions.append(img[:,img_size*2:img_size*3,0]/255)
+
+		labels = np.stack(labels, 0)
+		predictions = np.stack(predictions, 0)
+
+		union = labels + predictions
+		dice = -2*(np.sum(labels*predictions,(0,1,2))+1e-7)/(np.sum(union, (0,1,2))+1e-7)
+		dice_list.append(dice)
+	return dice_list

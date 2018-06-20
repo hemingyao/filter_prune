@@ -61,17 +61,21 @@ def float_feature(values):
   return tf.train.Feature(float_list=tf.train.FloatList(value=values))
 
 
-def image_to_tfexample(image_data, class_id):
+def image_to_tfexample(image_data, class_id, subject_id=0, index=0):
   return tf.train.Example(features=tf.train.Features(feature={
       'image/encoded': bytes_feature(image_data),
-      'image/class/label': int64_feature(class_id)
+      'image/class/label': int64_feature(class_id),
+      'image/subject': int64_feature(subject_id),
+      'image/index': int64_feature(index)
   }))
 
 
-def image_to_tfexample_segmentation(image_data, class_id):
+def image_to_tfexample_segmentation(image_data, class_id, subject_id=0, index=0):
   return tf.train.Example(features=tf.train.Features(feature={
       'image/encoded': bytes_feature(image_data),
-      'image/class/label': bytes_feature(class_id)
+      'image/class/label': bytes_feature(class_id),
+      'image/subject': int64_feature(subject_id),
+      'image/index': int64_feature(index)
   }))
 
 

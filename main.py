@@ -56,17 +56,19 @@ def get_trainable_variables(checkpoint_file, layer=None):
     return my_trainable_vars, restore_vars
 
 
-def dice(labels, logits):
+def dice(labels, logits, am_training):
     y_pred = tf.nn.softmax(logits)
-    y_true = labels
+    if am_training:
+        y_pred = y_pred[:,:,:,1]
+    else:
+        y_pred = tf.cast(tf.argmax(y_pred,-1), tf.float32)
 
-    y_pred = y_pred[:,:,:,1:]
-    y_true = y_true[:,:,:,1:]
+    y_true = labels[:,:,:,1]
 
     #union = y_pred+y_true - y_pred*y_true
     union = y_pred+y_true
-    dice_list = -2*tf.reduce_sum(y_pred*y_true,axis=(1,2,3))/(tf.reduce_sum(union,axis=(1,2,3))+0.001)
-    return tf.reduce_mean(dice_list)
+    dice_list = -2*(tf.reduce_sum(y_pred*y_true,axis=(1,2))+1e-7)/(tf.reduce_sum(union,axis=(1,2))+2e-7)
+    return dice_list
 
 
 class Train():
@@ -106,7 +108,7 @@ class Train():
 
             temp_labels = tf.reshape(labels, [-1, labels.shape[-1].value])
             temp_logits = tf.reshape(logits, [-1,logits.shape[-1].value])
-            class_weights = tf.constant([[1.0, 10.0]])
+            class_weights = tf.constant([[1.0, 5.0]])
             tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                 labels=class_weights *temp_labels, logits=temp_logits))
 
@@ -114,7 +116,7 @@ class Train():
              #       labels=temp_labels, logits=temp_logits, name='cross_entropy'))
 
         elif FLAGS.loss_type == 'dice': 
-            tower_loss = dice(labels, logits)
+            tower_loss = tf.reduce_mean(dice(labels, logits), am_training=True)
 
         tower_total_loss = train_ops.add_all_losses(tower_loss)
 
@@ -261,9 +263,9 @@ class Train():
         for var in tf.trainable_variables():
             tf.summary.histogram(var.op.name, var)
 
-        tf.summary.image('images', self.batch_data[0])
-        tf.summary.image('label', tf.cast(self.batch_labels[0][:,:,:,1:]*255, tf.uint8))
-        tf.summary.image('prediction', tf.cast(tf.expand_dims(predictions['classes'],-1)*255, tf.uint8))
+        tf.summary.image('images', self.batch_data[0], max_outputs=10)
+        tf.summary.image('label', tf.cast(self.batch_labels[0][:,:,:,1:]*255, tf.uint8), max_outputs=10)
+        tf.summary.image('prediction', tf.cast(tf.expand_dims(predictions['classes'],-1)*255, tf.uint8), max_outputs=10)
         self.summary_op = tf.summary.merge_all()
 
 
@@ -284,7 +286,7 @@ class Train():
             data_fn = functools.partial(input_fn, data_dir=os.path.join(FLAGS.data_dir, FLAGS.set_id), 
                 num_shards=FLAGS.num_gpus, batch_size=FLAGS.batch_size, use_distortion_for_training=True)
 
-            self.batch_data, self.batch_labels = tf.cond(self.am_training, 
+            self.batch_data, self.batch_labels, _, _ = tf.cond(self.am_training, 
                 lambda: data_fn(data_range=self.train_range, subset='train'),
                 lambda: data_fn(data_range=self.vali_range, subset='test'))
 
@@ -351,7 +353,7 @@ class Train():
             best_loss = 1
 
             nparams = op_utils.calculate_number_of_parameters(tf.trainable_variables())
-            print(nparams/FLAGS.num_gpus)
+            print(nparams)
 
             for step in range(train_steps):
 
@@ -442,27 +444,28 @@ class Train():
         return vali_loss_value, vali_accuracy_value
 
 
-def test(model_name, tf_config, test_range, test_path, probs):
+def test(tf_config, test_path, probs):
     ops.reset_default_graph()
     sess = tf.Session(config=tf_config)
-
+    save_root = FLAGS.save_root_for_prediction
     with sess.as_default():
         tflearn.is_training(False, session=sess)
-        batch_data, batch_labels = input_fn(data_dir=os.path.join(FLAGS.data_dir, FLAGS.set_id), 
+        batch_data, batch_labels, subject, index = input_fn(data_dir=os.path.join(FLAGS.data_dir, FLAGS.set_id), 
             num_shards=1, batch_size=FLAGS.test_batch_size, data_range=TEST_RANGE, subset='test')
+        with tf.variable_scope(FLAGS.net_name):
+            logits = getattr(network, FLAGS.net_name)(inputs=batch_data[0], 
+                prob_fc=1, prob_conv=1, wd=0, wd_scale=0, 
+                training_phase=False)
 
-        logits = getattr(network, FLAGS.net_name)(inputs=batch_data[0], 
-            prob_fc=1, prob_conv=1, wd=0, wd_scale=0, 
-            training_phase=False)
-
-        if Flags.seg:
-            accuracy = dice(labels=batch_labels[0], logits=logits)
+        preclass = tf.nn.softmax(logits)
+        prediction = tf.argmax(preclass,-1)
+        label =  tf.argmax(batch_labels[0],-1)
+        if FLAGS.seg:
+            accuracy = dice(labels=batch_labels[0], logits=logits, am_training=False)
         else:
-            preclass = tf.nn.softmax(logits)
-            prediction = tf.argmax(preclass,-1)
-            label =  tf.argmax(batch_labels[0],-1)
             correct_prediction = tf.equal(prediction, label)
             accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
 
         saver = tf.train.Saver(tf.global_variables())
         saver.restore(sess, test_path)
@@ -478,10 +481,13 @@ def test(model_name, tf_config, test_range, test_path, probs):
         num_batches = FLAGS.num_test_images//FLAGS.test_batch_size
 
         accuracy_list = []
+        prediction_array = []
+        label_array = []
+
         #var = [v for v in tf.global_variables() if v.name == 'prediction'][0]
         for step in range(num_batches):
             #print(step)
-            if probs:
+            if probs: # TODO
                 s, batch_prediction_array, batch_accuracy, batch_label_array = sess.run(
                 [batch_data, preclass, accuracy, label])
                 prediction_array.append(batch_prediction_array)
@@ -489,17 +495,34 @@ def test(model_name, tf_config, test_range, test_path, probs):
                 accuracy_list.append(batch_accuracy)        
 
             else:
-                batch_prediction_array, batch_accuracy, batch_label_array = sess.run(
-                    [prediction, accuracy, label])
-                prediction_array = np.concatenate((prediction_array, batch_prediction_array))
-                label_array = np.concatenate((label_array, batch_label_array))
+                images, annotations, sub_ind, ind, batch_prediction_array, batch_accuracy = sess.run(
+                    [batch_data, label, subject, index, prediction, accuracy])
+
+                op_utils.draw_images(save_root, images[0], annotations, sub_ind[0], ind[0], batch_prediction_array, -1*batch_accuracy)
+
+                if FLAGS.seg:
+                    pass
+                else:
+                    prediction_array = np.concatenate((prediction_array, batch_prediction_array))
+                    label_array = np.concatenate((label_array, batch_label_array))
                 accuracy_list.append(batch_accuracy)
 
         if probs:
             prediction_array = np.concatenate(prediction_array, axis=0)
+
+        """
+        if FLAGS.seg:
+            accuracy_list = np.array(accuracy_list)
+            rem = np.where(accuracy_list==-1)
+            mask = np.ones(len(accuracy_list), dtype=bool)
+            mask[rem[0]] = False
+            accuracy = np.mean(accuracy_list[mask])
+        else:
+        """
         accuracy = np.mean(np.array(accuracy_list, dtype=np.float32))
         #print(prediction_array)
-        print(accuracy)
+        diceoverall = op_utils.calcuate_dice_per_subject(save_root=save_root, img_size=IMG_SIZE[1])
+        print('{:.3f}, {}'.format(accuracy, np.round(diceoverall, 3)))
         return prediction_array, label_array, accuracy
 
 
@@ -528,7 +551,8 @@ def main(argv=None):
         train.train()
 
     elif option == 2:
-        test_new(tf_config, img_size, label_size, test_path, test_range=VAL_RANGE)
+        test_path = '/home/spc/Dropbox/Filter_Prune/Logs/mergeon_fourier_deep_test_lr_0.0001_wd_0.0001_Jun_17_10_45/model/epoch_5.0_acc_-0.061-10000'
+        test(tf_config, test_path, probs=False)
 
     elif option == 3:
         # Filter pruning
@@ -544,17 +568,13 @@ def main(argv=None):
         train = Train(model_name, run_id, tf_config, set_id, img_size, learning_rate, train_range, vali_range, weight_decay)
         train.train(dict_widx=dict_widx, pruned_model_path=pruned_model_path)
 
+    elif option == 4:
+        diceoverall = op_utils.calcuate_dice_per_subject(save_root=FLAGS.save_root_for_prediction, img_size=IMG_SIZE[1])
+        #print(diceoverall)
+
 
 if __name__ == '__main__':
     tf.app.run()
-
-
-
-
-
-
-
-
 
 
 

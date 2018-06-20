@@ -13,7 +13,7 @@ import h5py
 
 """
  h5 file structure (from Matlab):
-    DATASET, NAME (input, label)
+    DATASET, NAME (input, label)  
     For label: a mask (Note: The mask is 0/1 or 0/255?)
 """ 
 # allinone: Designed for one big matlab file for all data
@@ -83,7 +83,7 @@ def get_data_mat_allinone(raw_data_path, set_id, subject_index):
             data_point = Input.tostring()
             label = Label.tostring()
 
-            example = dataset_utils.image_to_tfexample_segmentation(data_point, label)
+            example = dataset_utils.image_to_tfexample_segmentation(data_point, label, subject_id=pf, index=ind)
             tfrecord_writer.write(example.SerializeToString())
 
         print('Finish writing data from {}'.format(pf))

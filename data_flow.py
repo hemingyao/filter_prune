@@ -32,6 +32,8 @@ class DataSet(object):
                 features={
                     'image/encoded': tf.FixedLenFeature([], tf.string),
                     'image/class/label': tf.FixedLenFeature([], tf.string),
+                    'image/subject': tf.FixedLenFeature([], tf.int64),
+                    'image/index': tf.FixedLenFeature([], tf.int64)
                 })
 
             image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
@@ -39,39 +41,46 @@ class DataSet(object):
             image = tf.cast(image, tf.float32)
 
             label = tf.decode_raw(features['image/class/label'], out_type=tf.int8)
-            label = tf.reshape(label, IMG_SIZE[0:2])
-            label = tf.cast(label, tf.int32)
-            label_raw = tf.cast(tf.reshape(label, IMG_SIZE), tf.float32)
+            #label = tf.reshape(label, IMG_SIZE[0:2])
+            label = tf.cast(tf.reshape(label, IMG_SIZE), tf.float32)
 
-            label = tf.one_hot(label, FLAGS.num_labels)
+            imgall = tf.concat([image, label], -1)
+            cut = image.shape[-1].value
+            new = self.preprocess(imgall)
+
+            image = new[:,:,0:cut]
+            label = new[:,:,cut]
+            #label = tf.cast(label, np.int32)
+            label = tf.one_hot(tf.cast(label, tf.int32), FLAGS.num_labels)
             # Custom preprocessing.
-            image = self.preprocess(image)
 
             image.set_shape(IMG_SIZE)
             label.set_shape(IMG_SIZE[0:2]+(FLAGS.num_labels,))
+
         else:
             features = tf.parse_single_example(
                 serialized_example,
                 features={
                     'image/encoded': tf.FixedLenFeature([], tf.string),
                     'image/class/label': tf.FixedLenFeature([], tf.int64),
+                    'image/subject': tf.FixedLenFeature([], tf.int64),
+                    'image/index': tf.FixedLenFeature([], tf.int64)
                 })
             #image = tf.decode_raw(features['image/encoded'], tf.uint8)
             #image = tf.image.decode_png(features['image/encoded'], dtype=tf.uint8)
             image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
             image = tf.reshape(image, IMG_SIZE)
             image = tf.cast(image, tf.float32)
-
+            image = self.preprocess(image)
             #label = tf.cast(features['image/class/label'], tf.int32)
             label = features['image/class/label']
+
             label = tf.one_hot(label,FLAGS.num_labels)
-            # Custom preprocessing.
-            image = self.preprocess(image)
 
             image.set_shape(IMG_SIZE)
             label.set_shape((FLAGS.num_labels,))
 
-        return image, label
+        return image, label, features['image/subject'], features['image/index']
 
     def make_batch(self, batch_size):
         """Read the images and labels from 'filenames'."""
@@ -97,9 +106,9 @@ class DataSet(object):
         
 
         iterator = dataset.make_one_shot_iterator()
-        image_batch, label_batch = iterator.get_next()
+        image_batch, label_batch, subejct_id, ind = iterator.get_next()
 
-        return image_batch, label_batch
+        return image_batch, label_batch, subejct_id, ind 
 
     def preprocess(self, image):
         """Preprocess a single image in [height, width, depth] layout."""
@@ -112,6 +121,8 @@ class DataSet(object):
             #image = tf.image.resize_image_with_crop_or_pad(image, 40, 40)
             #image = tf.random_crop(image, IMG_SIZE)
             #image = tf.image.random_flip_left_right(image)
+            if 'rotation' in DATA_AUG:
+                image = random_rotation(image)
         return image
 
     @staticmethod
@@ -146,10 +157,10 @@ def input_fn(data_dir,
     with tf.device('/cpu:0'):
         use_distortion = subset == 'train' and use_distortion_for_training
         dataset = DataSet(data_dir, data_range, subset, use_distortion)
-        image_batch, label_batch = dataset.make_batch(batch_size)
+        image_batch, label_batch, subject_id_batch, ind_batch = dataset.make_batch(batch_size)
         if num_shards <= 1:
             # No GPU available or only 1 GPU.
-            return [image_batch], [label_batch]
+            return [image_batch], [label_batch], [subject_id_batch], [ind_batch]
 
         # Note that passing num=batch_size is safe here, even though
         # dataset.batch(batch_size) can, in some cases, return fewer than batch_size
@@ -157,12 +168,25 @@ def input_fn(data_dir,
         # number of epochs, but our dataset repeats forever.
         image_batch = tf.unstack(image_batch, num=batch_size, axis=0)
         label_batch = tf.unstack(label_batch, num=batch_size, axis=0)
+        subject_id_batch = tf.unstack(subject_id_batch, num=batch_size, axis=0)
+        ind_batch =  tf.unstack(ind_batch , num=batch_size, axis=0)
+
         feature_shards = [[] for i in range(num_shards)]
         label_shards = [[] for i in range(num_shards)]
+        subject_id_shards = [[] for i in range(num_shards)]
+        ind_shards = [[] for i in range(num_shards)]
+
         for i in xrange(batch_size):
             idx = i % num_shards
             feature_shards[idx].append(image_batch[i])
             label_shards[idx].append(label_batch[i])
+            subject_id_shards[idx].append(subject_id_batch)
+            ind_shards[idx].append(ind_batch[i])
+
         feature_shards = [tf.parallel_stack(x) for x in feature_shards]
         label_shards = [tf.parallel_stack(x) for x in label_shards]
-        return feature_shards, label_shards
+        subject_id_shards = [tf.parallel_stack(x) for x in subject_id_shards]
+        ind_shards = [tf.parallel_stack(x) for x in ind_shards]
+        return feature_shards, label_shards, subject_id_shards, ind_shards
+
+
