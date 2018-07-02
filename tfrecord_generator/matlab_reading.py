@@ -33,7 +33,6 @@ raw_data_path = '/home/spc/Dropbox/CVproject/PatientsData_sel.mat'
 set_id = 'Hematoma_v2'
 
 
-
 def get_data_mat_allinone(raw_data_path, set_id, subject_index):
     f = h5py.File(raw_data_path, 'r')
     save_path = os.path.join(DATA_DIR, set_id)

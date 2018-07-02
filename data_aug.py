@@ -5,7 +5,8 @@ import numpy as np
 
 def random_rotation(img, a=1):
     img = tf.contrib.image.rotate(img, 
-            tf.random_uniform([1], minval=-a*math.pi, maxval=a*math.pi)) 
+            tf.random_uniform([1], minval=-a*math.pi, maxval=a*math.pi),
+            interpolation='BILINEAR') 
     return img
 
 def random_crop(img, crop_h, crop_w):

@@ -25,8 +25,8 @@ CLASS = [0, 1]
 PRE = ''
 
 DATA_DIR = '/home/spc/Documents/TFrecord'
-raw_data_path = '/media/DensoML/DENSO ML/LVData/LV_256_mix_eq2.h5'
-set_id = 'LV2011'
+raw_data_path = '/media/DensoML/DENSO ML/LVData/LV_256_mix_eq2_vali.h5'
+set_id = 'LV2011_vali'
 
 
 
@@ -44,12 +44,15 @@ def get_data_LV2011(raw_data_path, set_id):
     total = 0
     
     subject_index = list(f['location'].keys())
+
+    #subject_index = subject_index[57:77]
     for pid, pf in enumerate(subject_index):
-        tfrecord_filename = os.path.join(save_path, PRE+str(pf)+'.tfrecord')
+        tfrecord_filename = os.path.join(save_path, PRE+str(100+pid)+'.tfrecord')
         tfrecord_writer = tf.python_io.TFRecordWriter(tfrecord_filename)
 
         refinput = f['input/{}'.format(pf)][:]
-        refoutput = f['label/{}'.format(pf)][:]
+        refoutput = f['label/{}'.format(pf)][:].astype(np.bool).astype(np.int8)
+
         num = f['input/{}'.format(pf)].attrs['Num'].astype(np.int)[0]
         print(num)
         total+=num
@@ -60,11 +63,13 @@ def get_data_LV2011(raw_data_path, set_id):
 
             w = Label[:,:,1]
             i = Label[:,:,2]
+            #print(np.sum(w))
 
-            Label = np.zeros(w.shape)
-            Label = Label + w + i*2
-            Label = Label.astype(np.int8)
+            Label = np.zeros(w.shape) + w + i*2
             
+            #print(np.sum(w==1))
+            Label = Label.astype(np.int8)
+
             data_point = Input.tostring()
             label = Label.tostring()
 
@@ -78,7 +83,7 @@ def get_data_LV2011(raw_data_path, set_id):
 
 
 
-def get_data_Sunny(raw_data_path, set_id, subject_index):
+def get_data_Sunny(raw_data_path, set_id):
     f = h5py.File(raw_data_path, 'r')
     save_path = os.path.join(DATA_DIR, set_id)
 
@@ -91,44 +96,43 @@ def get_data_Sunny(raw_data_path, set_id, subject_index):
     log_f = open(os.path.join(DATA_DIR, set_id+'_info'), 'a')
     total = 0
     
-    for dataset in ['train', 'val', 'test']:
+    for prex, dataset in enumerate(['train', 'val', 'test']):
         subject_index = list(f['{}/location'.format(dataset)].keys())
-        for pf in subject_index:
-            tfrecord_filename = os.path.join(save_path, PRE+str(pf)+'.tfrecord')
+        for pid, pf in enumerate(subject_index):
+            tfrecord_filename = os.path.join(save_path, PRE+str(pid+prex*15)+'.tfrecord')
             tfrecord_writer = tf.python_io.TFRecordWriter(tfrecord_filename)
 
             refinput = f['{}/input/{}'.format(dataset, pf)][:]
-            refoutput = f['{}/output/{}'.format(dataset, pf)][:]
-            num=h5f['{}/input/{}'.format(dataset, pf)].attrs['Num'].astype(np.int)
+            refoutput = f['{}/label/{}'.format(dataset, pf)][:].astype(np.bool).astype(np.int8)
+            num = f['{}/input/{}'.format(dataset, pf)].attrs['Num'].astype(np.int)
+            num = num[0]
             print(num)
             total+=num
 
-            Labels = f[refoutput[0]][:]
-
             for ind in range(num):
                 Input= refinput[ind,:,:]
-                Label= refinput[ind,:,:,:]
+                Label= refoutput[ind,:,:,:]
 
-                wall = Label[:,:,:,1]
-                endo = Label[:,:,:,2]
+                wall = Label[:,:,1]
+                endo = Label[:,:,2]
 
-                Label = np.zeros(wall)
+                Label = np.zeros(wall.shape)
                 Label = Label + wall + endo*2
                 Label = Label.astype(np.int8)
                 
                 data_point = Input.tostring()
                 label = Label.tostring()
 
-                example = dataset_utils.image_to_tfexample_segmentation(data_point, label, subject_id=pf, index=ind)
+                example = dataset_utils.image_to_tfexample_segmentation(data_point, label, subject_id=pid, index=ind)
                 tfrecord_writer.write(example.SerializeToString())
 
-            print('Finish writing data from {}'.format(pf))
-            log_f.write('{}: {}\t {}\n'.format(pf, num, json.dumps(subject_stats)))
+            print('Finish writing data from {}'.format(pid))
+            log_f.write('{}_{}: {}\n'.format(pid, pf, num))
 
-    log_f.write('{}'.format(json.dumps(dataset_stats)))
+    log_f.write('In total: {}'.format(total))
 
 
 if __name__ == '__main__':
     #raw_data_path = '/media/DensoML/DENSO ML/DrowsinessData/'
     get_data_LV2011(raw_data_path, set_id)
-
+    #get_data_Sunny(raw_data_path, set_id)

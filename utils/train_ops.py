@@ -45,7 +45,7 @@ def train_operation(loss, var_list, global_step, decay_rate, decay_steps, grads_
 	Outputs:
 	grads_and_vars
 	"""
-	learning_rate = tf.train.exponential_decay(lr, global_step, 3000, 0.5, staircase=True) # 10000, 0.9
+	learning_rate = tf.train.exponential_decay(lr, global_step, 600, 0.9, staircase=True) # 10000, 0.9
 	learning_rate = lr
 	if optimizer=='Adam':
 		opt = tf.train.AdamOptimizer(learning_rate)
