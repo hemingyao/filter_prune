@@ -1,8 +1,8 @@
 # Filter Prune
 
 # Program Requirements
-Python 3.5
-Tensorflow 1.3.0
+- Python 3.5
+- Tensorflow 1.3.0
 
 # How to use
 - **main.py**
