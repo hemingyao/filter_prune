@@ -1,94 +1,80 @@
 import tensorflow as tf
 import tflearn_dev as tflearn
+from tflearn_dev import conv_2d_scale, batch_normalization
 import numpy as np
 from flags import FLAGS
+import functools
 
-import keras
-from keras.layers import Convolution2D, MaxPooling2D, UpSampling2D, Dropout,Conv2DTranspose, concatenate
-from keras.layers.core import Activation
-from keras.layers.normalization import BatchNormalization
 
 ##################################################################################################################
+def resnet(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
+  n = 5
+  net = tflearn.conv_2d(inputs, 16, 3, regularizer='L2', weight_decay=0.0001)
+  net = tflearn.residual_block(net, n, 16)
+  net = tflearn.residual_block(net, 1, 32, downsample=True)
+  net = tflearn.residual_block(net, n-1, 32)
+  net = tflearn.residual_block(net, 1, 64, downsample=True)
+  net = tflearn.residual_block(net, n-1, 64)
+  net = tflearn.batch_normalization(net)
+  net = tflearn.activation(net, 'relu')
+  net = tflearn.global_avg_pool(net)
+  # Regression
+  net = tflearn.fully_connected(net, 10, activation='linear')
+  return net
+
 def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
     # First Block
     #print(inputs.shape)
     use_scale=False
     a = [64, 64, 128, 128, 256, 256, 256, 512, 512, 512, 512, 512, 512]
+    #a = [64, 64, 128, 128, 256, 256, 256, 256, 256, 256, 256, 256, 256]
+    
     #a = [32, 32, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
-    conv = tflearn.conv_2d(inputs, a[0], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd, 
-                      scope="Conv"+'1_1', trainable=True)
-    conv = tflearn.conv_2d(conv, a[1], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'1_2', trainable=True)
-    conv = tflearn.batch_normalization(conv)
+    #a = [32, 32,32, 32,32, 32,32, 32,32, 32,32, 32,32]
+    conv = inputs
+    conv_fn = functools.partial(conv_2d_scale, filter_size=[3,3], activation='relu',
+              weights_init='normal',regularizer='L2',weight_decay=wd, 
+              am_scale=use_scale, wd_scale=FLAGS.weight_scale)
+    bn = functools.partial(batch_normalization, gm_trainable=True)
+
+    conv = conv_fn(incoming=conv, nb_filter=a[0], scope="Conv"+'1_1')
+    conv = conv_fn(incoming=conv, nb_filter=a[1], scope="Conv"+'1_2')
+    conv = bn(conv)
     conv = tflearn.max_pool_2d(conv, 2, name='pool_1')
     conv = tflearn.dropout(conv, prob_conv, name='dropout1')
 
     # Second Block
-    
-    conv = tflearn.conv_2d(conv, a[2], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'2_1', trainable=True)
-    conv = tflearn.conv_2d(conv, a[3], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'2_2', trainable=True)
-                      
-    conv = tflearn.batch_normalization(conv)
+    conv = conv_fn(incoming=conv, nb_filter=a[2], scope="Conv"+'2_1')
+    conv = conv_fn(incoming=conv, nb_filter=a[3], scope="Conv"+'2_2')         
+    conv = bn(conv)
     conv = tflearn.max_pool_2d(conv, 2, name='pool_2')
     conv = tflearn.dropout(conv, prob_conv, name='dropout2')
 
     # Third Block
-    conv = tflearn.conv_2d(conv, a[4], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'3_1', trainable=True)
-    
-    conv = tflearn.conv_2d(conv, a[5], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'3_2', trainable=True)
-
-    conv = tflearn.conv_2d(conv, a[6], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'3_3', trainable=True)
-
-    
-    conv = tflearn.batch_normalization(conv)
+    conv = conv_fn(incoming=conv, nb_filter=a[4], scope="Conv"+'3_1', scale_unit=8)
+    conv = conv_fn(incoming=conv, nb_filter=a[5], scope="Conv"+'3_2', scale_unit=8) 
+    conv = conv_fn(incoming=conv, nb_filter=a[6], scope="Conv"+'3_3', scale_unit=8)
+    conv = bn(conv)
     conv = tflearn.max_pool_2d(conv, 2, name='pool_3')
     conv = tflearn.dropout(conv, prob_conv, name='dropout3')
 
     # Fourth Block
-    
-    conv = tflearn.conv_2d(conv, a[7], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'4_1', trainable=True)
-    
-    conv = tflearn.conv_2d(conv, a[8], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'4_2', trainable=True)
-    conv = tflearn.conv_2d(conv, a[9], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'4_3', trainable=True)
+    conv = conv_fn(incoming=conv, nb_filter=a[7], scope="Conv"+'4_1', scale_unit=8) 
+    conv = conv_fn(incoming=conv, nb_filter=a[8], scope="Conv"+'4_2', scale_unit=8)
+    conv = conv_fn(incoming=conv, nb_filter=a[9], scope="Conv"+'4_3', scale_unit=8)
                       
-    conv = tflearn.batch_normalization(conv)
+    conv = bn(conv)
     conv = tflearn.max_pool_2d(conv, 2, name='pool_4')
     conv = tflearn.dropout(conv, prob_conv, name='dropout4')
 
     # Fifth Block
-    
-    conv = tflearn.conv_2d(conv, a[10], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'5_1', trainable=True)
-    
-    conv = tflearn.conv_2d(conv, a[11], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'5_2', trainable=True)
-    conv = tflearn.conv_2d(conv, a[12], [3,3], activation='relu', weights_init='normal',regularizer='L2',
-                      weight_decay=wd,
-                      scope="Conv"+'5_3', trainable=True)
+    conv = conv_fn(incoming=conv, nb_filter=a[10], scope="Conv"+'5_1', scale_unit=8) 
+    conv = conv_fn(incoming=conv, nb_filter=a[11], scope="Conv"+'5_2', scale_unit=8)
+    conv = conv_fn(incoming=conv, nb_filter=a[12], scope="Conv"+'5_3', scale_unit=8)
                       
-    conv = tflearn.batch_normalization(conv)
-    conv = tflearn.max_pool_2d(conv, 2, name='pool_5')
-    conv = tflearn.dropout(conv, prob_fc, name='dropout5')
+    conv = bn(conv)
+    conv = tflearn.max_pool_2d(conv, 2, name='pool_6')
+    conv = tflearn.dropout(conv, prob_fc, name='dropout6')
 
     #conv = tf.reduce_mean(conv, [1,2], name='global_pool_1')
     conv = tflearn.fully_connected(conv, 512, activation='relu', scope='fc1', trainable=True)
@@ -98,6 +84,7 @@ def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=
     conv = tflearn.fully_connected(conv, FLAGS.num_labels, name='fc3', trainable=True) #,activation='softmax'
 
     return conv
+
     
 
 def mergeon_fourier_deep(inputs, prob_fc, prob_conv, wd, wd_scale, training_phase):

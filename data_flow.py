@@ -36,22 +36,29 @@ class DataSet(object):
                     'image/index': tf.FixedLenFeature([], tf.int64)
                 })
 
-            image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
+            image = tf.decode_raw(features['image/encoded'], out_type=tf.float64)
             image = tf.reshape(image, IMG_SIZE)
             image = tf.cast(image, tf.float32)
 
             label = tf.decode_raw(features['image/class/label'], out_type=tf.int8)
+            #label = tf.reshape(tf.cast(label, tf.float32), IMG_SIZE)
+            #label = tf.concat([label, label, label], axis=-1)
+            #label = tf.equal(tf.cast(label, tf.float32), tf.ones([256*256]))
+
+            label = tf.one_hot(tf.reshape(tf.cast(label, tf.int32), IMG_SIZE[0:2]), FLAGS.num_labels)
+
+            label = tf.cast(label, tf.float32)
             #label = tf.reshape(label, IMG_SIZE[0:2])
-            label = tf.cast(tf.reshape(label, IMG_SIZE), tf.float32)
+            #label = tf.cast(tf.reshape(label, IMG_SIZE), tf.float32)
 
             imgall = tf.concat([image, label], -1)
             cut = image.shape[-1].value
             new = self.preprocess(imgall)
 
             image = new[:,:,0:cut]
-            label = new[:,:,cut]
+            label = new[:,:,cut:]
             #label = tf.cast(label, np.int32)
-            label = tf.one_hot(tf.cast(label, tf.int32), FLAGS.num_labels)
+            
             # Custom preprocessing.
 
             image.set_shape(IMG_SIZE)
@@ -66,11 +73,12 @@ class DataSet(object):
                     'image/subject': tf.FixedLenFeature([], tf.int64),
                     'image/index': tf.FixedLenFeature([], tf.int64)
                 })
-            #image = tf.decode_raw(features['image/encoded'], tf.uint8)
+
             #image = tf.image.decode_png(features['image/encoded'], dtype=tf.uint8)
             image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
             image = tf.reshape(image, IMG_SIZE)
             image = tf.cast(image, tf.float32)
+            image = image/255 - np.stack([np.ones([32,32])*0.4913, np.ones([32,32])*0.4822, np.ones([32,32])*0.4465], axis=-1)
             image = self.preprocess(image)
             #label = tf.cast(features['image/class/label'], tf.int32)
             label = features['image/class/label']
@@ -130,7 +138,7 @@ class DataSet(object):
         if subset == 'train':
             return FLAGS.num_train_images
         elif subset == 'validation':
-            return FLAGS.num_val_images
+            return FLAGS.num_test_images
         elif subset == 'eval':
             return FLAGS.num_test_images
         else:

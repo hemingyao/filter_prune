@@ -16,10 +16,38 @@ from tensorflow.python.ops import random_ops
 
 ## Import Customized Functions
 import network
-from flags import FLAGS, TRAIN_RANGE, VAL_RANGE, TEST_RANGE, option, IMG_SIZE
-import tflearn_dev as tflearn
-from data_flow import input_fn
+from flags import FLAGS, TRAIN_RANGE, VAL_RANGE, option
+
+#import tflearn_dev as tflearn
+import tflearn
+from data_flow import input_fn, IMG_SIZE
+
 from utils import multig, prune, op_utils, train_ops
+import keras.backend as K
+
+
+def weighted_jaccard_loss_v2(logits, y_trues):
+    dice = 0
+    y_preds = tf.nn.softmax(logits)
+    weights = [1, 1]
+    for i in range(2):
+        y_pred = y_preds[:,:,:,i+1]
+        y_true = y_trues[:,:,:,i+1]
+        union = y_pred+y_true - y_pred*y_true
+        dice_list = -1*tf.reduce_sum(y_pred*y_true,(1,2))/(tf.reduce_sum(union,(1,2))+1)
+        dice = dice+tf.reduce_mean(dice_list)*weights[i]
+    return dice
+
+def weighted_jaccard_loss(y_preds, y_trues):
+    dice = 0
+    weights = [1, 1]
+    for i in range(2):
+        y_pred = y_preds[:,:,:,i+1]
+        y_true = y_trues[:,:,:,i+1]
+        union = y_pred+y_true - y_pred*y_true
+        dice_list = -1*weights[i]*tf.reduce_sum(y_pred*y_true,(1,2))/(tf.reduce_sum(union,(1,2))+1)
+        dice = dice+tf.reduce_mean(dice_list)
+    return dice
 
 
 def get_trainable_variables(checkpoint_file, layer=None):
@@ -54,18 +82,24 @@ def get_trainable_variables(checkpoint_file, layer=None):
     return my_trainable_vars, restore_vars
 
 
+
 def dice(labels, logits, am_training):
+    class_weights = tf.constant([[1.0]])
     y_pred = tf.nn.softmax(logits)
     if am_training:
-        y_pred = y_pred[:,:,:,1]
+        y_pred = y_pred[:,:,:,1:]
     else:
-        y_pred = tf.cast(tf.argmax(y_pred,-1), tf.float32)
+        maxvalue = tf.reduce_max(y_pred, axis=-1)
+        y_pred = tf.equal(y_pred, tf.stack([maxvalue,maxvalue,maxvalue], axis=-1))
+        y_pred = tf.cast(y_pred[:,:,:,1:], tf.float32)
 
-    y_true = labels[:,:,:,1]
+    y_true = labels[:,:,:,1:]
 
     #union = y_pred+y_true - y_pred*y_true
     union = y_pred+y_true
-    dice_list = -2*(tf.reduce_sum(y_pred*y_true,axis=(1,2))+1e-7)/(tf.reduce_sum(union,axis=(1,2))+2e-7)
+    inter = y_pred*y_true
+    under = union-inter
+    dice_list = -1*(tf.reduce_sum(y_pred*y_true*class_weights,axis=(1,2,3))+1e-7)/(tf.reduce_sum(under,axis=(1,2,3))+2e-7)
     return dice_list
 
 
@@ -83,21 +117,40 @@ class Train():
         self.wd_scale = FLAGS.weight_scale
         self.set_id = FLAGS.set_id
         self.am_training = True
-        
+    
+    def _dice(self, logits):
+
+        y_pred = tf.nn.softmax(logits)
+        y_true = self.batch_labels[0]
+        # add a number at end (20) to avoid dividing by 0
+        y_pred = y_pred[:,:,:,1:2]
+        #y_pred = y_pred[:,:,:,1:]
+        y_true = y_true[:,:,:,1:2]
+        #y_true = y_true[:,:,:,1:]
+        union = y_pred+y_true
+        union = y_pred+y_true - y_pred*y_true
+        dice_list = K.sum(y_pred*y_true,(1,2,3))/(K.sum(union,(1,2,3))+1)
+        dice = K.mean(dice_list)
+        #dice = weighted_dice_loss(y_preds, y_trues)
+        return dice
+
+    def _dice_loss(self, logits, label):
+
+        y_pred = tf.nn.softmax(logits)
+        y_true = label
+        #dice = weighted_cross_entropy(y_pred, y_true)
+        #dice = weighted_dice_loss(y_pred, y_true)
+        dice = weighted_jaccard_loss(y_pred, y_true)
+        return dice
 
     def _tower_fn(self, index):
         """
-        Build computation tower 
+        #Build computation tower 
         """
         logits = getattr(network, FLAGS.net_name)(inputs=self.batch_data[index], 
             prob_fc=self.prob_fc, prob_conv=self.prob_conv, 
             wd=self.wd, wd_scale=self.wd_scale, 
             training_phase=self.am_training)
-
-        tower_pred = {
-            'classes': tf.argmax(input=logits, axis=-1),
-            'probabilities': tf.nn.softmax(logits)
-            }
 
         labels = self.batch_labels[index]
 
@@ -106,26 +159,39 @@ class Train():
 
             temp_labels = tf.reshape(labels, [-1, labels.shape[-1].value])
             temp_logits = tf.reshape(logits, [-1,logits.shape[-1].value])
-            #class_weights = tf.constant([[1.0, 1.0]])
-            #tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-            #    labels=class_weights *temp_labels, logits=temp_logits))
-
+            class_weights = tf.constant([[1.0, 1.0, 1.0]])
             tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-                    labels=temp_labels, logits=temp_logits, name='cross_entropy'))
+                labels=class_weights*temp_labels, logits=temp_logits))
+
+            #tower_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+             #       labels=temp_labels, logits=temp_logits, name='cross_entropy'))
 
         elif FLAGS.loss_type == 'dice': 
-            tower_loss = tf.reduce_mean(dice(labels, logits), am_training=True)
+            #tower_loss = tf.reduce_mean(weighted_jaccard_loss(labels, logits[0]))
+            tower_loss = self._dice_loss(logits[0], labels)
 
-        # Add regularization loss and scale loss
+            """
+            tower_loss = (tf.reduce_mean(self._dice_loss(logits[0], labels))\
+                         + tf.reduce_mean(self._dice_loss(logits[1], labels)) \
+                         + tf.reduce_mean(self._dice_loss(logits[2], labels)) \
+                         + tf.reduce_mean(self._dice_loss(logits[3],labels)))
+            """
+            
+            logits = logits[0]
+
         tower_total_loss = train_ops.add_all_losses(tower_loss)
 
-        if FLAGS.status=='transfer':
-            model_params, restore_vars = get_trainable_variables(FLAGS.checkpoint_path)
-            model_params = model_params+restore_vars
-        else:
-            model_params = tf.trainable_variables()
+        tower_pred = {
+            'classes': tf.argmax(input=logits, axis=-1),
+            'probabilities': tf.nn.softmax(logits)
+            }
+
+        #if FLAGS.status=='transfer':
+        #    model_params, _ = get_trainable_variables(FLAGS.checkpoint_path)
+        #else:
+        model_params = tf.trainable_variables()
             
-        
+
         tower_grad = tf.gradients(tower_total_loss, model_params)
 
         return tower_loss, tower_total_loss, zip(tower_grad, model_params), tower_pred
@@ -138,6 +204,13 @@ class Train():
         1. CPU is the parameter server and manages gradient updates.
         2. Parameters are distributed evenly across all GPUs, and the first GPU
            manages gradient updates.
+        Args:
+          features: a list of tensors, one for each tower
+          labels: a list of tensors, one for each tower
+          mode: ModeKeys.TRAIN or EVAL
+          params: Hyperparameters suitable for tuning
+        Returns:
+          A EstimatorSpec object.
         """
         global_step = tf.contrib.framework.get_or_create_global_step()
         tower_losses = []
@@ -166,7 +239,6 @@ class Train():
                   ps_strategy=tf.contrib.training.GreedyLoadBalancingStrategy(
                       num_gpus, tf.contrib.training.byte_size_load_fn))
             with tf.variable_scope(FLAGS.net_name, reuse=bool(i != 0)):
-
                 with tf.name_scope('tower_%d' % i) as name_scope:
                     with tf.device(device_setter):
                         loss, total_loss, gradvars, preds = self._tower_fn(i)
@@ -181,98 +253,177 @@ class Train():
                         # ignore the other stats from the other towers without
                         # significant detriment.
                             update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS,
+        
                                                        name_scope)
         # Now compute global loss and gradients.
-        gradlst = []
-        varlst = []
+        if len(tower_gradvars)==1:
+            print('only one gpu')
+            gradvars = tower_gradvars[0]
+        else:
+            print('average')
+            gradlst = []
+            varlst = []
+            with tf.name_scope('gradient_averaging'):
+                all_grads = {}
+                for grad, var in itertools.chain(*tower_gradvars):
+                    if grad is not None:
+                        all_grads.setdefault(var, []).append(grad)
+                for var, grads in six.iteritems(all_grads):
+                    # Average gradients on the same device as the variables
+                    # to which they apply.
+                    with tf.device(var.device):
+                        if len(grads) == 1:
+                            avg_grad = grads[0]
+                        else:
+                            avg_grad = tf.multiply(tf.add_n(grads), 1. / len(grads))
+                    gradlst.append(avg_grad)
+                    varlst.append(var)
 
-        with tf.name_scope('gradient_averaging'):
-            all_grads = {}
-            for grad, var in itertools.chain(*tower_gradvars):
-                if grad is not None:
-                    all_grads.setdefault(var, []).append(grad)
-            for var, grads in six.iteritems(all_grads):
-                # Average gradients on the same device as the variables
-                # to which they apply.
-                with tf.device(var.device):
-                    if len(grads) == 1:
-                        avg_grad = grads[0]
-                    else:
-                        avg_grad = tf.multiply(tf.add_n(grads), 1. / len(grads))
-                gradlst.append(avg_grad)
-                varlst.append(var)
+                    if FLAGS.clip_gradients > 0.0:
+                        gradlst, grad_norm = tf.clip_by_global_norm(gradlst, FLAGS.clip_gradients)
+                    gradvars = list(zip(gradlst, varlst))
 
-                if FLAGS.clip_gradients > 0.0:
-                    gradlst, grad_norm = tf.clip_by_global_norm(gradlst, FLAGS.clip_gradients)
-                gradvars = list(zip(gradlst, varlst))
-
-        if FLAGS.status=='prune' and self.dict_widx:
-            print('prune')
+        if FLAGS.status=='tune' and self.dict_sidx:
             gradvars = prune.apply_prune_on_grads(gradvars, self.dict_widx)
 
         # Device that runs the ops to apply global gradient updates.
-        consolidation_device = '/gpu:0' if variable_strategy == 'GPU' else '/cpu:0'
+        #consolidation_device = '/gpu:0' if variable_strategy == 'GPU' else '/cpu:0'
         
 
-        with tf.device(consolidation_device):
+        #with tf.device(consolidation_device):
           # Suggested learning rate scheduling from
 
-            self.loss = tf.reduce_mean(tower_losses, name='loss')
-            self.total_loss = tf.reduce_mean(tower_total_losses, name='total_loss')
+        self.loss = tower_losses[0]
+        self.total_loss = tower_total_losses[0]
 
-            _, apply_gradients_op, learning_rate = train_ops.train_operation(lr=FLAGS.learning_rate, global_step=global_step, 
-                            decay_rate=FLAGS.decay_rate, decay_steps=FLAGS.decay_steps, optimizer=FLAGS.optimizer, clip_gradients=FLAGS.clip_gradients,
-                            loss=self.total_loss, var_list=tf.trainable_variables(), grads_and_vars=gradvars)
-            
-            predictions = {
-                'classes':
-                    tf.concat([p['classes'] for p in tower_preds], axis=0),
-                
-                #'probabilities':
-                #    tf.concat([p['probabilities'] for p in tower_preds], axis=0)
+
+        self.learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step,
+                                       600, 0.9, staircase=True) # 10000
+        opt = tf.train.AdamOptimizer(self.learning_rate)
+        if self.dict_widx is None:
+            apply_gradients_op = opt.apply_gradients(gradvars, global_step=global_step)
+
+
+        #_, apply_gradients_op, learning_rate = train_ops.train_operation(lr=FLAGS.learning_rate, global_step=global_step, 
+        #                decay_rate=0.5, decay_steps=32000, optimizer=FLAGS.optimizer, clip_gradients=FLAGS.clip_gradients,
+        #                loss=self.total_loss, var_list=tf.trainable_variables(), grads_and_vars=gradvars)
+
+        predictions = {
+            'classes':
+                tf.concat([p['classes'] for p in tower_preds], axis=0),
+            'probabilities':
+                tf.concat([p['probabilities'] for p in tower_preds], axis=0)
+        }
+        stacked_labels = tf.concat(self.batch_labels, axis=0)
+        #stacked_labels = tf.argmax(input=stacked_labels, axis=1),
+        if FLAGS.seg:
+            y_pred = tf.cast(predictions['classes'], tf.float32)
+            y_true = tf.cast(stacked_labels[:,:,:,1], tf.float32)
+            union = y_pred + y_true
+            dice_list = -2*tf.reduce_sum(y_pred*y_true,axis=(1,2))/(tf.reduce_sum(union,axis=(1,2))+0.001)
+            metrics = {
+                'accuracy': tf.reduce_mean(dice_list)
+            }               
+        else:
+            correct_prediction = tf.equal(predictions['classes'], tf.argmax(stacked_labels,-1))
+
+            metrics = {
+                'accuracy': tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+                    #tf.metrics.accuracy(stacked_labels, predictions['classes'])
             }
-            stacked_labels = tf.concat(self.batch_labels, axis=0)
-            #stacked_labels = tf.argmax(input=stacked_labels, axis=1),
-            
 
-            if FLAGS.seg:
-                y_pred = tf.cast(predictions['classes'], tf.float32)
-                y_true = tf.cast(stacked_labels[:,:,:,1], tf.float32)
-                union = y_pred + y_true
-                dice_list = -2*tf.reduce_sum(y_pred*y_true,axis=(1,2))/(tf.reduce_sum(union,axis=(1,2))+0.001)
-                metrics = {
-                    'accuracy': tf.reduce_mean(dice_list)
-                    }                          
-            else:
-                correct_prediction = tf.equal(predictions['classes'], tf.argmax(stacked_labels,-1))
-                metrics = {
-                    'accuracy': tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-                        #tf.metrics.accuracy(stacked_labels, predictions['classes'])
-                }
+        # Create single grouped train op
+        train_op = [apply_gradients_op]
+        train_op.extend(update_ops)
+        self.train_op = tf.group(*train_op)
+        
+        self.prediction = predictions['classes']
+        self.accuracy = metrics['accuracy']
 
-            # Create single grouped train op
-            train_op = [apply_gradients_op]
-            train_op.extend(update_ops)
-            self.train_op = tf.group(*train_op)
-            
-            self.prediction = predictions['classes']
-            self.accuracy = metrics['accuracy']
-
-        """
         for var in tf.trainable_variables():
             tf.summary.histogram(var.op.name, var)
-        for grad, var in gradvars:
-            if grad is not None:
-                tf.summary.histogram(var.op.name + '/gradients', grad)
-        """
 
-        for var in tf.get_collection('scale_vars'):
-            tf.summary.histogram(var.op.name, var)
-        # Concatenate Images
         tf.summary.image('images', self.batch_data[0], max_outputs=10)
+        tf.summary.image('label', tf.cast(self.batch_labels[0][:,:,:,1:2]*255, tf.uint8), max_outputs=10)
+        tf.summary.image('prediction', tf.cast(tf.expand_dims(predictions['classes'],-1)*255, tf.uint8), max_outputs=10)
+        #tf.summary.image('label', tf.cast(self.batch_labels[0][:,:,:,1:2]*127+self.batch_labels[0][:,:,:,2:3]*255, tf.uint8), max_outputs=10)
+        #tf.summary.image('prediction', tf.cast(tf.expand_dims(predictions['classes'],-1)*255/(FLAGS.num_labels-1), tf.uint8), max_outputs=10)
         self.summary_op = tf.summary.merge_all()
+    
+    """
+    def _build_graph(self):
+        global_step = tf.contrib.framework.get_or_create_global_step()
+
+        # Calculate logits using training data and vali data seperately
+        #logits, logits_2 = getattr(model, self.model)(self.batch_data, self.wd)
+        logits = getattr(network, FLAGS.net_name)(inputs=self.batch_data[0], 
+            prob_fc=self.prob_fc, prob_conv=self.prob_conv, 
+            wd=self.wd, wd_scale=self.wd_scale, 
+            training_phase=self.am_training)
 
 
+        print(logits.shape)
+        with tf.name_scope("traing_dice"):
+            self.accuracy = self._dice(logits[0])
+            self.loss = self._dice_loss(logits[0])
+            #self.loss = self._dice_loss(logits[0]) + self._dice_loss(logits[1]) + self._dice_loss(logits[2]) + self._dice_loss(logits[3]) +\
+            #                        self._dice_loss(logits[4]) + self._dice_loss(logits[5])
+
+
+        with tf.name_scope("total_loss"):
+            weight_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            scale_loss = tf.get_collection('losses')
+
+            w1 = 0; w2 = 0
+            if len(weight_loss)>0:
+                w1 = tf.add_n(weight_loss)
+            
+            if len(scale_loss)>0:
+                w2 = tf.add_n(scale_loss)
+                #self.total_loss = self.total_loss + tf.add(tf.add_n(scale_loss), loss, name='scale_total_loss')
+
+            self.total_loss = self.loss + w1 + w2
+            #self.total_loss = self.loss + w1 + w2 + w_adversatial
+
+        #with tf.name_scope("train"):
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+
+        with tf.control_dependencies(update_ops):
+
+            self.learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step,
+                                           600, 0.9, staircase=True) # 10000
+
+            opt = tf.train.AdamOptimizer(self.learning_rate)
+
+            #opt = tf.train.GradientDescentOptimizer(self.learning_rate)
+            #opt = tf.train.MomentumOptimizer(self.learning_rate, 0.9)
+            #opt = tf.train.RMSPropOptimizer(self.learning_rate)
+            
+            grads_and_vars = opt.compute_gradients(self.total_loss)
+
+            
+            #for grad, var in grads_and_vars:
+            #   if grad is not None:
+            #       tf.summary.histogram(var.op.name + '/gradients', grad)
+            
+
+            if self.dict_widx is None:
+                apply_gradient_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
+            else:
+                grads_and_vars = apply_prune_on_grads(grads_and_vars, self.dict_widx)
+                apply_gradient_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
+
+
+            for var in tf.trainable_variables():
+                tf.summary.histogram(var.op.name, var)
+
+
+        tf.summary.image('images', self.batch_data[0], max_outputs=10)
+        tf.summary.image('label', tf.cast(self.batch_labels[0][:,:,:,1:2]*255, tf.uint8), max_outputs=10)
+        #tf.summary.image('prediction', tf.cast(tf.expand_dims(predictions['classes'],-1)*255, tf.uint8), max_outputs=10)
+        self.summary_op = tf.summary.merge_all()
+        self.train_op = tf.group(apply_gradient_op)
+        """
 
     def train(self, **kwargs):
         #with tf.Graph().as_default():
@@ -305,22 +456,17 @@ class Train():
                 init = tf.global_variables_initializer()
                 sess.run(init)
 
-            elif FLAGS.status=='prune':
+            elif FLAGS.status=='tune':
                 self.dict_widx = kwargs['dict_widx']
                 pruned_model = kwargs['pruned_model_path']
 
+                #tflearn.config.init_training_mode()
                 self._build_graph()             
+                #tflearn.config.init_training_mode()
                 init = tf.global_variables_initializer()
                 sess.run(init)
 
-                all_name2var = dict(zip(map(lambda x:x.name.split(':')[0], tf.global_variables()), tf.global_variables()))
-                v_sel = []
-
-                for name, var in all_name2var.items():
-                    if 'Adam' not in name:
-                        v_sel.append(all_name2var[name])
-                self.saver = tf.train.Saver(v_sel)
-                #self.saver = tf.train.Saver(tf.global_variables())
+                self.saver = tf.train.Saver(tf.global_variables())
                 self.saver.restore(sess, pruned_model)
                 print('Pruned model restored from ', pruned_model)
 
@@ -329,11 +475,10 @@ class Train():
                 #tflearn.config.init_training_mode()
                 init = tf.global_variables_initializer()
                 sess.run(init)
-                v1, v2 = get_trainable_variables(FLAGS.checkpoint_path)
+
                 self.saver = tf.train.Saver(tf.global_variables())
-                saver =  tf.train.Saver(v2)
-                saver.restore(sess, FLAGS.checkpoint_path)
-                print('Model restored.')
+                self.saver.restore(sess, FLAGS.checkpoint_path)
+                print('Model restored')
 
 
             #coord = tf.train.Coordinator()
@@ -376,7 +521,8 @@ class Train():
                     [self.batch_data, self.batch_labels, self.train_op, self.summary_op, self.loss, self.total_loss, self.accuracy], 
                     feed_dict={self.am_training: True, self.prob_fc: FLAGS.keep_prob_fc, self.prob_conv: FLAGS.keep_prob_conv})
 
-                tflearn.is_training(False, session=sess)
+                #np.save('./test.npy',labels[0])
+                #tflearn.is_training(False, session=sess)
                 duration = time.time() - start_time
                 durations.append(duration)
                 train_loss_list.append(loss_value)
@@ -411,8 +557,8 @@ class Train():
                                                       
                     vali_loss_value, vali_accuracy_value = self._full_validation(sess)
                     
-                    if step%(report_freq*FLAGS.save_epoch)==0:
-                        epoch = step/(report_freq*FLAGS.save_epoch)
+                    if step%(report_freq*10)==0:
+                        epoch = step/report_freq
                         model_dir = os.path.join(FLAGS.log_dir, self.run_id, 'model')
                         if not os.path.isdir(model_dir):
                             os.mkdir(model_dir)
@@ -445,7 +591,7 @@ class Train():
             _, _, loss, accuracy = sess.run([self.batch_data, self.batch_labels,self.loss, self.accuracy], 
                 feed_dict={self.am_training:False, self.prob_fc: 1, self.prob_conv: 1})
                                             #feed_dict={self.am_training: False, self.prob_fc: FLAGS.keep_prob_fc, self.prob_conv: 1})
-            #accuracy = 0
+            
             loss_list.append(loss)
             accuracy_list.append(accuracy)
 
@@ -509,12 +655,13 @@ def test(tf_config, test_path, probs):
                 images, annotations, sub_ind, ind, batch_prediction_array, batch_accuracy = sess.run(
                     [batch_data, label, subject, index, prediction, accuracy])
 
+                op_utils.draw_images(save_root, images[0], annotations, sub_ind[0], ind[0], batch_prediction_array, -1*batch_accuracy)
+
                 if FLAGS.seg:
                     pass
                 else:
-                    pass
-                    #prediction_array = np.concatenate((prediction_array, batch_prediction_array))
-                    #label_array = np.concatenate((label_array, batch_label_array))
+                    prediction_array = np.concatenate((prediction_array, batch_prediction_array))
+                    label_array = np.concatenate((label_array, batch_label_array))
                 accuracy_list.append(batch_accuracy)
 
         if probs:
@@ -530,7 +677,9 @@ def test(tf_config, test_path, probs):
         else:
         """
         accuracy = np.mean(np.array(accuracy_list, dtype=np.float32))
-        print('{:.3f}'.format(accuracy))
+        #print(prediction_array)
+        diceoverall = op_utils.calcuate_dice_per_subject(save_root=save_root, img_size=IMG_SIZE[1])
+        print('{:.3f}, {}'.format(accuracy, np.round(diceoverall, 3)))
         return prediction_array, label_array, accuracy
 
 
@@ -552,40 +701,36 @@ def main(argv=None):
     #set_id = 'eval'
 
     if option == 1:
-        run_id = '{}_{}_wd_{}_{}'.format(FLAGS.net_name, FLAGS.run_name, FLAGS.weight_scale, time.strftime("%b_%d_%H_%M", time.localtime()))
+        run_id = '{}_{}_lr_{}_wd_{}_{}'.format(FLAGS.net_name, FLAGS.run_name, FLAGS.learning_rate, FLAGS.weight_decay, time.strftime("%b_%d_%H_%M", time.localtime()))
 
         # First Training
         train = Train(run_id, tf_config)
         train.train()
 
     elif option == 2:
-        trained_path = '/home/spc/Dropbox/Filter_Prune/Logs/baseline_rescale_Prune_1_lr_0.01_wd_0.001_Jul_07_09_51/model/epoch_2.0_acc_0.900-1940'
-        #test_path = '/home/spc/Dropbox/Filter_Prune/Logs/baseline_rescale_more_scale_wd_0.0001_Jul_06_11_10/epoch_21.0_acc_0.906-10185'
+        test_path = '/home/spc/Dropbox/Filter_Prune/Logs/mergeon_fourier_deep_test_lr_0.0001_wd_0.0001_Jun_17_10_45/model/epoch_5.0_acc_-0.061-10000'
         test(tf_config, test_path, probs=False)
 
     elif option == 3:
         # Filter pruning
-        trained_path = '/home/spc/Dropbox/Filter_Prune/Logs/prune_network/baseline_rescale_ScaleFC_wd_0.0001_Jul_06_14_52/model/epoch_49.0_acc_0.912-47530'
+        trained_path = '/home/spc/Dropbox/Drowsiness/3D/log_0.0001/Sparse_fourier_new_7__lr_0.001_wd_0.0001_Feb_06_13_47/model/epoch_11.0_dice_-0.832-6600'
 
         run_name = 'Prune_1'
-        run_id = '{}_{}_lr_{}_wd_{}_{}'.format(FLAGS.net_name, run_name, FLAGS.learning_rate, 
-                 FLAGS.weight_decay, time.strftime("%b_%d_%H_%M", time.localtime()))
-        layer_names = ['Conv1_1', 'Conv1_2', 'Conv2_1', 'Conv2_2', 'Conv3_1', 'Conv3_2', 
-                       'Conv3_3', 'Conv4_1', 'Conv4_2', 'Conv4_3', 'Conv5_1', 'Conv5_2', 'Conv5_3']
-        layer_names = [FLAGS.net_name+'/'+name  for name in layer_names]
+        run_id = '{}_{}_lr_{}_wd_{}_{}'.format(model_name, run_name, learning_rate, weight_decay, time.strftime("%b_%d_%H_%M", time.localtime()))
+        layer_names = ['Conv3D', 'Conv3D_1', 'Conv3D_2', 'Conv3D_3'] 
 
-        #a = [0, 0, 0.78, 24.22, 51.17, 56.64, 43.75, 52.34, 54.69, 61.33, 57.81, 55.76, 52.73] 
         dict_widx, pruned_model_path = prune.apply_pruning_scale(layer_names, trained_path, run_id, tf_config)
-        #a = [0]*5+[50]*8
-        
-        #dict_widx, pruned_model_path = prune.apply_pruning_random(layer_names, a, trained_path, run_id, tf_config, random=False)
-        #test(tf_config, pruned_model_path, probs=False)
-        print(trained_path)
-        train = Train(run_id, tf_config)
+        #dict_widx, pruned_model_path = apply_pruning_random(layer_names, [58,52,52,63], trained_path, run_id, tf_config, random=False)
+
+        train = Train(model_name, run_id, tf_config, set_id, img_size, learning_rate, train_range, vali_range, weight_decay)
         train.train(dict_widx=dict_widx, pruned_model_path=pruned_model_path)
+
+    elif option == 4:
+        diceoverall = op_utils.calcuate_dice_per_subject(save_root=FLAGS.save_root_for_prediction, img_size=IMG_SIZE[1])
+        #print(diceoverall)
+
 
 if __name__ == '__main__':
     tf.app.run()
-
 
 

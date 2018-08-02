@@ -26,7 +26,6 @@ def add_all_losses(loss):
 	return total_loss
 
 
-
 def train_operation(loss, var_list, global_step, decay_rate, decay_steps, grads_and_vars, 
 	lr=0.001, optimizer='Adam',dict_widx=None, clip_gradients=0):
 	"""
@@ -45,8 +44,8 @@ def train_operation(loss, var_list, global_step, decay_rate, decay_steps, grads_
 	Outputs:
 	grads_and_vars
 	"""
-	learning_rate = tf.train.exponential_decay(lr, global_step, 600, 0.9, staircase=True) # 10000, 0.9
-	learning_rate = lr
+	learning_rate = tf.train.exponential_decay(lr, global_step, decay_steps, decay_rate, staircase=True) # 10000, 0.9
+
 	if optimizer=='Adam':
 		opt = tf.train.AdamOptimizer(learning_rate)
 	elif optimizer=='SGD':

@@ -14,11 +14,46 @@ from .. import utils
 from ..layers.normalization import batch_normalization
 
 
+def _fully_connected(x, num_neuro, name):
+    '''
+    x: [batch_size, spatial_size, spatial_size, channel]
+    '''
+    with tf.variable_scope(name):
+        shape = x.get_shape().as_list()
+        dim = 1
+        for d in shape[1:]:
+            dim *= d
+        x = tf.reshape(x, [-1, dim])
+
+        W = tf.get_variable(name='W', shape=[dim,num_neuro], initializer=tf.truncated_normal_initializer(stddev=0.01))
+        b = tf.get_variable(name='b', shape=[num_neuro], initializer=tf.constant_initializer(0.5))
+        out = tf.add(tf.matmul(x, W), b)
+
+        return out
+
+def _fully_connected_rescale(x, num_neuro, name):
+    '''
+    x: [batch_size, spatial_size, spatial_size, channel]
+    '''
+    with tf.variable_scope(name):
+        shape = x.get_shape().as_list()
+        dim = 1
+        for d in shape[1:]:
+            dim *= d
+        x = tf.reshape(x, [-1, dim])
+
+        W = tf.get_variable(name='W', shape=[dim,num_neuro], initializer=tf.truncated_normal_initializer(stddev=0.01),trainable=False)
+        b = tf.get_variable(name='b', shape=[num_neuro], initializer=tf.constant_initializer(1), trainable=False)
+        out = tf.add(tf.matmul(x, W), b)
+
+        return out
+
+
 def conv_2d_scale(incoming, nb_filter, filter_size, strides=1, padding='same',
             activation='linear', bias=True, weights_init='uniform_scaling',
             bias_init='zeros', regularizer=None, weight_decay=0.001,wd_scale=0.001,
             trainable=True, restore=True, reuse=False, scope=None,
-            name="Conv2D", am_scale=False):
+            name="Conv2D", am_scale=False, scale_unit=4):
 
     input_shape = utils.get_incoming_shape(incoming)
     assert len(input_shape) == 4, "Incoming Tensor shape must be 4-D"
@@ -42,6 +77,8 @@ def conv_2d_scale(incoming, nb_filter, filter_size, strides=1, padding='same',
                         initializer=W_init, trainable=trainable,
                         restore=restore)
 
+        #scale = vs.variable('s', shape=nb_filter, initializer=tf.constant_initializer(1),
+        #                    trainable=trainable, restore=restore)
         # Track per layer variables
         tf.add_to_collection(tf.GraphKeys.LAYER_VARIABLES + '/' + name, W)
 
@@ -56,21 +93,25 @@ def conv_2d_scale(incoming, nb_filter, filter_size, strides=1, padding='same',
 
         if am_scale:
             with tf.variable_scope('scale'):
+                
                 out_dim = nb_filter
                 W_flatten = tf.reshape(W, [-1, out_dim])
                 mag = tf.norm(W_flatten, 1, axis=0, keep_dims=True)
-                out = _fully_connected(mag, out_dim/16, 'fc1')
+                scale_unit = nb_filter/4
+                out = _fully_connected(mag, scale_unit, 'fc1')
                 out = tf.nn.relu(out)
                 out = _fully_connected_rescale(out, out_dim, 'fc2')
                 #out = tflearn.batch_normalization(out, scope='bn')
                 #scale = tf.nn.softmax(out)*out_dim
                 scale = tf.nn.sigmoid(out)
-                tf.summary.histogram(name+'/scale', scale)
+                
+                tf.add_to_collection('scale_vars', scale)
             
             scale_decay = tf.multiply(tf.norm(scale, 1), wd_scale, name='scale_loss')
             tf.add_to_collection('losses', scale_decay)
 
             inference = tf.nn.conv2d(incoming, tf.multiply(W, scale), strides, padding)
+
         else:
             inference = tf.nn.conv2d(incoming, W, strides, padding)
 
@@ -300,43 +341,7 @@ def conv_3d_old(incoming, nb_filter, filter_size, strides=1, padding='same',
     # Track output tensor.
     tf.add_to_collection(tf.GraphKeys.LAYER_TENSOR + '/' + name, inference)
 
-    return inference
-
-
-def _fully_connected(x, num_neuro, name):
-    '''
-    x: [batch_size, spatial_size, spatial_size, channel]
-    '''
-    with tf.variable_scope(name):
-        shape = x.get_shape().as_list()
-        dim = 1
-        for d in shape[1:]:
-            dim *= d
-        x = tf.reshape(x, [-1, dim])
-
-        W = tf.get_variable(name='W', shape=[dim,num_neuro], initializer=tf.truncated_normal_initializer(stddev=0.01))
-        b = tf.get_variable(name='b', shape=[num_neuro], initializer=tf.constant_initializer(0.5))
-        out = tf.add(tf.matmul(x, W), b)
-
-        return out
-
-def _fully_connected_rescale(x, num_neuro, name):
-    '''
-    x: [batch_size, spatial_size, spatial_size, channel]
-    '''
-    with tf.variable_scope(name):
-        shape = x.get_shape().as_list()
-        dim = 1
-        for d in shape[1:]:
-            dim *= d
-        x = tf.reshape(x, [-1, dim])
-
-        W = tf.get_variable(name='W', shape=[dim,num_neuro], initializer=tf.truncated_normal_initializer(stddev=0.01),trainable=False)
-        b = tf.get_variable(name='b', shape=[num_neuro], initializer=tf.constant_initializer(1), trainable=False)
-        out = tf.add(tf.matmul(x, W), b)
-
-        return out
-        
+    return inference        
 
 
 

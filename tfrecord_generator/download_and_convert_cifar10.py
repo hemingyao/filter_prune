@@ -93,7 +93,7 @@ def _add_to_tfrecord(filename, tfrecord_writer, offset=0):
     label_raw = label
 
     example = dataset_utils.image_to_tfexample(
-        image_raw, b'png', _IMAGE_SIZE, _IMAGE_SIZE, label_raw)
+        image_raw, label_raw)
     tfrecord_writer.write(example.SerializeToString())
 
   """
