@@ -3,7 +3,7 @@ from __future__ import division, print_function, absolute_import
 import tflearn
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"]="2"
+os.environ["CUDA_VISIBLE_DEVICES"]="3"
 # Residual blocks
 # 32 layers: n=5, 56 layers: n=9, 110 layers: n=18
 n = 5
