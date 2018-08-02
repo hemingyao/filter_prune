@@ -5,16 +5,16 @@ Python 3.5
 Tensorflow 1.3.0
 
 # How to use
-- main.py 
+- **main.py**
 run it to train/test/prune a network
-- flag.py
+- **flag.py**
 Hyper-parameters. Please change them to fit your network and task.
-- tfrecord_generator
+- **tfrecord_generator**
 Data preparation. This folder contains scripts to generate tfrecords with the defined format using data stored in different formats.
-- utils
+- **utils**
 prune.py contains functions used for filter prune.
 Methods include: random pruning, l1 based pruning, scale valued based pruning
-- AD, Archive
+- **AD, Archive**
 Scripts in these two folders are not used. I just keep them in case. 
 
  
