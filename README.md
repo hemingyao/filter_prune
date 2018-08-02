@@ -6,7 +6,7 @@ Tensorflow 1.3.0
 
 # How to use
 - **main.py**
-run it to train/test/prune a network
+Run it to train/test/prune a network
 - **flag.py**
 Hyper-parameters. Please change them to fit your network and task.
 - **tfrecord_generator**
