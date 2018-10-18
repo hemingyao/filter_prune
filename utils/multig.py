@@ -1,3 +1,7 @@
+"""
+From https://github.com/tensorflow/models
+"""
+
 import collections
 import six
 

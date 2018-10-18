@@ -1,4 +1,4 @@
-# Filter Prune
+# DENSO - Filter Prune
 
 # Program Requirements
 - Python 3.5

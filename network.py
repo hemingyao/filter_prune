@@ -1,3 +1,20 @@
+"""
+Author: Heming Yao
+System: Linux
+
+Multiple conovlutional neural network architectures are implemented.
+
+All network functions have the same set of args
+Args:
+  input: A tensor of shape [num_filters, height, width, num_channels]
+  prob_fc: float. keep probability for the dropout of fully connected layer
+  prob_conv: float. keep probability for the dropout of convolutional neural networks
+  wd: weight decay
+  wd_scale: float. scale decay if applicable (using filter prune)
+  training_phase: boolean. 
+"""
+
+
 import tensorflow as tf
 import tflearn_dev as tflearn
 from tflearn_dev import conv_2d_scale, batch_normalization
@@ -8,6 +25,8 @@ import functools
 
 ##################################################################################################################
 def resnet(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
+  """ Resnet model
+  """
   n = 5
   net = tflearn.conv_2d(inputs, 16, 3, regularizer='L2', weight_decay=0.0001)
   net = tflearn.residual_block(net, n, 16)
@@ -23,8 +42,8 @@ def resnet(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
   return net
 
 def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=True):
-    # First Block
-    #print(inputs.shape)
+    """ Vgg model
+    """
     use_scale=False
     a = [64, 64, 128, 128, 256, 256, 256, 512, 512, 512, 512, 512, 512]
     #a = [64, 64, 128, 128, 256, 256, 256, 256, 256, 256, 256, 256, 256]
@@ -85,9 +104,10 @@ def baseline_rescale(inputs, prob_fc, prob_conv, wd, wd_scale=0, training_phase=
 
     return conv
 
-    
 
 def mergeon_fourier_deep(inputs, prob_fc, prob_conv, wd, wd_scale, training_phase):
+    """ Unet model
+    """
     first_channel = 32
     drop = prob_fc
     #Inputs = MaxPooling2D(2, padding='same', name='down'+'0')(Inputs)
@@ -118,6 +138,13 @@ def mergeon_fourier_deep(inputs, prob_fc, prob_conv, wd, wd_scale, training_phas
 
 
 def basic_netunit_tf(inputs,No,channel,kernel,wd, drop, down=True):
+    """ sub-module for Unet
+    inputs: A tensor of of shape [num_filters, height, width, num_channels]
+    No: the index of the layer
+    channel: interger. the number of filters
+    kernel: [height, width], the spatial size of the filter
+    """
+
     network = tflearn.conv_2d(inputs, channel, [3,3], activation='relu', regularizer='L2',weight_decay=wd, 
               scope="Conv"+No+'_1')
     network = tflearn.conv_2d(inputs, channel, [3,3], activation='relu', regularizer='L2',weight_decay=wd,

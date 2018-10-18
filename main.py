@@ -1,11 +1,17 @@
+"""
+Author: Heming Yao
+System: Linux
+
+This is the main function for model training, test, and filter pruning
+See flag.py for all relevent hyper-parameters 
+See network.py for deep architectures
+"""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-#from scipy.misc import imresize
-#import keras.backend as K
 import numpy as np
 import time, os, h5py
 import functools, itertools, six
@@ -23,6 +29,10 @@ from utils import multig, prune, op_utils, train_ops
 
 
 def get_trainable_variables(checkpoint_file, layer=None):
+    """This function is used for transfer learning
+    to customize restore variables and new trainabel variables
+    """
+
     reader = tf.train.NewCheckpointReader(checkpoint_file)
     saved_shapes = reader.get_variable_to_shape_map()
 
@@ -88,6 +98,8 @@ class Train():
     def _tower_fn(self, index):
         """
         Build computation tower 
+        Args:
+          index: should be from 0 to n. n is the number of gpus.
         """
         logits = getattr(network, FLAGS.net_name)(inputs=self.batch_data[index], 
             prob_fc=self.prob_fc, prob_conv=self.prob_conv, 
@@ -259,6 +271,7 @@ class Train():
             self.accuracy = metrics['accuracy']
 
         """
+        # This block may be uncommened in debug stage 
         for var in tf.trainable_variables():
             tf.summary.histogram(var.op.name, var)
         for grad, var in gradvars:
@@ -275,7 +288,11 @@ class Train():
 
 
     def train(self, **kwargs):
-        #with tf.Graph().as_default():
+        """ Training body.
+        if the filter prune is used, the input should be:
+          dict_widx: the pruned weight matrix
+          pruned_model_path: the path to the pruned model.
+        """
         ops.reset_default_graph()
         sess = tf.Session(config=self.tf_config)
 
@@ -295,8 +312,6 @@ class Train():
                 lambda: data_fn(data_range=self.train_range, subset='train'),
                 lambda: data_fn(data_range=self.vali_range, subset='test'))
 
-            #self.batch_data = self.batch_data[0]
-            #self.batch_labels = self.batch_labels[0]
             if FLAGS.status=='scratch':
                 self.dict_widx = None
                 self._build_graph()
@@ -320,13 +335,11 @@ class Train():
                     if 'Adam' not in name:
                         v_sel.append(all_name2var[name])
                 self.saver = tf.train.Saver(v_sel)
-                #self.saver = tf.train.Saver(tf.global_variables())
                 self.saver.restore(sess, pruned_model)
                 print('Pruned model restored from ', pruned_model)
 
             elif FLAGS.status=='transfer':  
                 self._build_graph()             
-                #tflearn.config.init_training_mode()
                 init = tf.global_variables_initializer()
                 sess.run(init)
                 v1, v2 = get_trainable_variables(FLAGS.checkpoint_path)
@@ -335,9 +348,6 @@ class Train():
                 saver.restore(sess, FLAGS.checkpoint_path)
                 print('Model restored.')
 
-
-            #coord = tf.train.Coordinator()
-            #threads = tf.train.start_queue_runners(coord=coord)
 
             # This summary writer object helps write summaries on tensorboard
             summary_writer = tf.summary.FileWriter(FLAGS.log_dir+self.run_id)
@@ -368,7 +378,6 @@ class Train():
 
             for step in range(train_steps):
 
-                #print('{} step starts'.format(step))
                 start_time = time.time()
                 tflearn.is_training(True, session=sess)
 
@@ -385,8 +394,6 @@ class Train():
 
                 assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
                 
-                #if step%(report_freq*10)==0:
-                #   print(self.learning_rate)
                 if step%report_freq == 0:
                     start_time = time.time()
 
@@ -435,6 +442,11 @@ class Train():
 
 
     def _full_validation(self, sess):
+        """ Validation.
+        After each epoch training, the loss value and accuracy will be 
+        calculated for the validation dataset.
+        The output can be used to implement early stopping.
+        """
         tflearn.is_training(False, session=sess)
         num_batches_vali = FLAGS.num_val_images // FLAGS.batch_size
 
@@ -456,6 +468,11 @@ class Train():
 
 
 def test(tf_config, test_path, probs):
+    """ Test function. To evaluate the performance of trained models
+    tf_config: tensorflow and gpu configurations
+    test_path: url. the path of trained model for test
+    probs: boolean. True: calculate the probability. False: not calcualte.
+    """
     ops.reset_default_graph()
     sess = tf.Session(config=tf_config)
     save_root = FLAGS.save_root_for_prediction
@@ -495,7 +512,6 @@ def test(tf_config, test_path, probs):
         prediction_array = []
         label_array = []
 
-        #var = [v for v in tf.global_variables() if v.name == 'prediction'][0]
         for step in range(num_batches):
             #print(step)
             if probs: # TODO
@@ -509,32 +525,21 @@ def test(tf_config, test_path, probs):
                 images, annotations, sub_ind, ind, batch_prediction_array, batch_accuracy = sess.run(
                     [batch_data, label, subject, index, prediction, accuracy])
 
-                if FLAGS.seg:
-                    pass
-                else:
-                    pass
-                    #prediction_array = np.concatenate((prediction_array, batch_prediction_array))
-                    #label_array = np.concatenate((label_array, batch_label_array))
                 accuracy_list.append(batch_accuracy)
 
         if probs:
             prediction_array = np.concatenate(prediction_array, axis=0)
 
-        """
-        if FLAGS.seg:
-            accuracy_list = np.array(accuracy_list)
-            rem = np.where(accuracy_list==-1)
-            mask = np.ones(len(accuracy_list), dtype=bool)
-            mask[rem[0]] = False
-            accuracy = np.mean(accuracy_list[mask])
-        else:
-        """
+
         accuracy = np.mean(np.array(accuracy_list, dtype=np.float32))
         print('{:.3f}'.format(accuracy))
         return prediction_array, label_array, accuracy
 
 
 def main(argv=None):
+    """ The main function
+      gi: specify which gpus installed on your computer the program will use
+    """
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("gi", nargs='?', help="index of the gpu",
@@ -545,11 +550,9 @@ def main(argv=None):
     else: 
         os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
 
-    #os.environ["CUDA_VISIBLE_DEVICES"]= str(gi)
     tf_config=tf.ConfigProto()
     tf_config.gpu_options.allow_growth=True 
 
-    #set_id = 'eval'
 
     if option == 1:
         run_id = '{}_{}_wd_{}_{}'.format(FLAGS.net_name, FLAGS.run_name, FLAGS.weight_scale, time.strftime("%b_%d_%H_%M", time.localtime()))
@@ -574,10 +577,8 @@ def main(argv=None):
                        'Conv3_3', 'Conv4_1', 'Conv4_2', 'Conv4_3', 'Conv5_1', 'Conv5_2', 'Conv5_3']
         layer_names = [FLAGS.net_name+'/'+name  for name in layer_names]
 
-        #a = [0, 0, 0.78, 24.22, 51.17, 56.64, 43.75, 52.34, 54.69, 61.33, 57.81, 55.76, 52.73] 
         dict_widx, pruned_model_path = prune.apply_pruning_scale(layer_names, trained_path, run_id, tf_config)
-        #a = [0]*5+[50]*8
-        
+        #
         #dict_widx, pruned_model_path = prune.apply_pruning_random(layer_names, a, trained_path, run_id, tf_config, random=False)
         #test(tf_config, pruned_model_path, probs=False)
         print(trained_path)

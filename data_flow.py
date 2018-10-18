@@ -1,3 +1,10 @@
+"""
+Author: Heming Yao
+System: Linux
+
+Functions for multi-thread data reading in tensorflow.
+"""
+
 import os
 import tensorflow as tf
 from six.moves import xrange
@@ -41,15 +48,8 @@ class DataSet(object):
             image = tf.cast(image, tf.float32)
 
             label = tf.decode_raw(features['image/class/label'], out_type=tf.int8)
-            #label = tf.reshape(tf.cast(label, tf.float32), IMG_SIZE)
-            #label = tf.concat([label, label, label], axis=-1)
-            #label = tf.equal(tf.cast(label, tf.float32), tf.ones([256*256]))
-
             label = tf.one_hot(tf.reshape(tf.cast(label, tf.int32), IMG_SIZE[0:2]), FLAGS.num_labels)
-
             label = tf.cast(label, tf.float32)
-            #label = tf.reshape(label, IMG_SIZE[0:2])
-            #label = tf.cast(tf.reshape(label, IMG_SIZE), tf.float32)
 
             imgall = tf.concat([image, label], -1)
             cut = image.shape[-1].value
@@ -57,10 +57,8 @@ class DataSet(object):
 
             image = new[:,:,0:cut]
             label = new[:,:,cut:]
-            #label = tf.cast(label, np.int32)
             
             # Custom preprocessing.
-
             image.set_shape(IMG_SIZE)
             label.set_shape(IMG_SIZE[0:2]+(FLAGS.num_labels,))
 
@@ -74,15 +72,12 @@ class DataSet(object):
                     'image/index': tf.FixedLenFeature([], tf.int64)
                 })
 
-            #image = tf.image.decode_png(features['image/encoded'], dtype=tf.uint8)
             image = tf.decode_raw(features['image/encoded'], out_type=tf.uint8)
             image = tf.reshape(image, IMG_SIZE)
             image = tf.cast(image, tf.float32)
             image = image/255 - np.stack([np.ones([32,32])*0.4913, np.ones([32,32])*0.4822, np.ones([32,32])*0.4465], axis=-1)
-            image = self.preprocess(image)
-            #label = tf.cast(features['image/class/label'], tf.int32)
-            label = features['image/class/label']
 
+            label = features['image/class/label']
             label = tf.one_hot(label,FLAGS.num_labels)
 
             image.set_shape(IMG_SIZE)
@@ -126,9 +121,6 @@ class DataSet(object):
                 image = random_crop(image, crop_padding_height=40, crop_padding_width=40)
             if 'random_flip_left_right' in DATA_AUG:
                 image = random_flip_left_right(image)
-            #image = tf.image.resize_image_with_crop_or_pad(image, 40, 40)
-            #image = tf.random_crop(image, IMG_SIZE)
-            #image = tf.image.random_flip_left_right(image)
             if 'rotation' in DATA_AUG:
                 image = random_rotation(image)
         return image

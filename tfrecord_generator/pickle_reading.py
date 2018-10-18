@@ -1,3 +1,10 @@
+"""
+Author: Heming Yao
+System: Linux
+
+TFRecord generation.
+"""
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -24,7 +31,15 @@ stride_seq = 7
 
 
 def get_data_pickle(raw_data_path, set_id, seq_length, stride_frame, stride_seq, subject_index=[]):
-    
+    """ Convert data in pickle to tfrecord
+    Args:
+      raw_data_path: location of the raw data
+      set_id: unique name for the created tfrecord dataset
+      seq_length: the length of frames used for one input
+      stride_frame: the step size of frames
+      stride_seq: the step size of sequences
+      subject_index: the subject id
+    """
     save_path = os.path.join(DATA_DIR, set_id+'_{}_{}_{}'.format(seq_length, stride_frame, stride_seq))
 
     if os.path.isdir(save_path):
